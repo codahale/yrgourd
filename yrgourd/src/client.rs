@@ -1,5 +1,5 @@
 use curve25519_dalek::{RistrettoPoint, Scalar};
-use lockstitch::{Protocol, TAG_LEN};
+use lockstitch::Protocol;
 use rand::{CryptoRng, RngCore};
 
 use crate::server::HandshakeResponse;
@@ -7,7 +7,7 @@ use crate::Connected;
 
 pub struct HandshakeRequest {
     pub ephemeral_pub: [u8; 32],
-    pub sealed_static_pub: [u8; 32 + TAG_LEN],
+    pub static_pub: [u8; 32],
     pub sig_i: [u8; 32],
     pub sig_s: [u8; 32],
 }
@@ -44,7 +44,7 @@ impl Client {
     pub fn request_handshake(&mut self, mut rng: impl RngCore + CryptoRng) -> HandshakeRequest {
         let mut handshake = HandshakeRequest {
             ephemeral_pub: self.ephemeral_pub,
-            sealed_static_pub: [0u8; 32 + TAG_LEN],
+            static_pub: [0u8; 32],
             sig_i: [0u8; 32],
             sig_s: [0u8; 32],
         };
@@ -54,8 +54,8 @@ impl Client {
 
         self.protocol.mix(b"client-ephemeral-pub", &self.ephemeral_pub);
         self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
-        handshake.sealed_static_pub[..32].copy_from_slice(&self.static_pub);
-        self.protocol.seal(b"client-static-pub", &mut handshake.sealed_static_pub);
+        handshake.static_pub.copy_from_slice(&self.static_pub);
+        self.protocol.encrypt(b"client-static-pub", &mut handshake.static_pub);
         self.protocol.mix(b"static-shared", &static_shared);
 
         let k = self.protocol.hedge(&mut rng, &[self.static_priv.as_bytes()], 10_000, |clone| {

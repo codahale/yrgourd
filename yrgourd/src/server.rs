@@ -30,15 +30,13 @@ impl Server {
         let ephemeral_pub =
             CompressedRistretto::from_slice(&handshake.ephemeral_pub).ok()?.decompress()?;
         self.protocol.mix(b"client-ephemeral-pub", &handshake.ephemeral_pub);
+
         let ephemeral_shared = (ephemeral_pub * self.static_priv).compress().to_bytes();
         self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
-        let mut sealed_static_pub = handshake.sealed_static_pub;
 
-        let static_pub = CompressedRistretto::from_slice(
-            self.protocol.open(b"client-static-pub", &mut sealed_static_pub)?,
-        )
-        .ok()?
-        .decompress()?;
+        let mut static_pub = handshake.static_pub;
+        self.protocol.decrypt(b"client-static-pub", &mut static_pub);
+        let static_pub = CompressedRistretto::from_slice(&static_pub).ok()?.decompress()?;
 
         let static_shared = (static_pub * self.static_priv).compress().to_bytes();
         self.protocol.mix(b"static-shared", &static_shared);
