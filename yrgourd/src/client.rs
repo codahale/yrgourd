@@ -42,20 +42,13 @@ impl Client {
     }
 
     pub fn request_handshake(&mut self, mut rng: impl RngCore + CryptoRng) -> HandshakeRequest {
-        let mut handshake = HandshakeRequest {
-            ephemeral_pub: self.ephemeral_pub,
-            static_pub: [0u8; 32],
-            sig_i: [0u8; 32],
-            sig_s: [0u8; 32],
-        };
-
         let ephemeral_shared = (self.server_static_pub * self.ephemeral_priv).compress().to_bytes();
         let static_shared = (self.server_static_pub * self.static_priv).compress().to_bytes();
 
         self.protocol.mix(b"client-ephemeral-pub", &self.ephemeral_pub);
         self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
-        handshake.static_pub.copy_from_slice(&self.static_pub);
-        self.protocol.encrypt(b"client-static-pub", &mut handshake.static_pub);
+        let mut static_pub = self.static_pub;
+        self.protocol.encrypt(b"client-static-pub", &mut static_pub);
         self.protocol.mix(b"static-shared", &static_shared);
 
         let k = self.protocol.hedge(&mut rng, &[self.static_priv.as_bytes()], 10_000, |clone| {
@@ -63,18 +56,17 @@ impl Client {
         });
         let i = RistrettoPoint::mul_base(&k);
 
-        handshake.sig_i.copy_from_slice(i.compress().as_bytes());
-        self.protocol.encrypt(b"client-commitment-point", &mut handshake.sig_i);
+        let mut sig_i = i.compress().to_bytes();
+        self.protocol.encrypt(b"client-commitment-point", &mut sig_i);
 
         let r = Scalar::from_bytes_mod_order_wide(
             &self.protocol.derive_array(b"client-challenge-scalar"),
         );
 
-        let s = (self.static_priv * r) + k;
-        handshake.sig_s.copy_from_slice(s.as_bytes());
-        self.protocol.encrypt(b"client-proof-scalar", &mut handshake.sig_s);
+        let mut sig_s = ((self.static_priv * r) + k).to_bytes();
+        self.protocol.encrypt(b"client-proof-scalar", &mut sig_s);
 
-        handshake
+        HandshakeRequest { ephemeral_pub: self.ephemeral_pub, static_pub, sig_i, sig_s }
     }
 
     pub fn process_response(&mut self, response: &HandshakeResponse) -> Option<Connected> {
@@ -89,14 +81,10 @@ impl Client {
         self.protocol.decrypt(b"server-proof-scalar", &mut s);
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
-        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-self.server_static_pub, &s)
+        (RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-self.server_static_pub, &s)
             .compress()
             .as_bytes()
-            != &i
-        {
-            return None;
-        }
-
-        Some(Connected::new(&self.protocol))
+            == &i)
+            .then(|| Connected::new(&self.protocol))
     }
 }
