@@ -1,0 +1,3 @@
+[workspace]
+members = ["yrgourd", "yrgourd-cli"]
+resolver = "2"
