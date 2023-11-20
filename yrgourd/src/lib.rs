@@ -1,30 +1,16 @@
-use lockstitch::Protocol;
-
 pub mod client;
+mod messages;
 pub mod server;
-
-pub struct Connected {
-    to_client: Protocol,
-    to_server: Protocol,
-}
-
-impl Connected {
-    pub fn new(protocol: &Protocol) -> Connected {
-        let mut connected = Connected { to_client: protocol.clone(), to_server: protocol.clone() };
-        connected.to_client.mix(b"direction", b"client");
-        connected.to_server.mix(b"direction", b"server");
-        connected
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use curve25519_dalek::{RistrettoPoint, Scalar};
+    use lockstitch::TAG_LEN;
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
 
-    use crate::client::Client;
-    use crate::server::Server;
+    use crate::client::HandshakingClient;
+    use crate::server::HandshakingServer;
 
     #[test]
     fn round_trip() {
@@ -32,10 +18,10 @@ mod tests {
 
         let server_priv = Scalar::random(&mut rng);
         let server_pub = RistrettoPoint::mul_base(&server_priv);
-        let mut server = Server::new(server_priv);
+        let mut server = HandshakingServer::new(server_priv);
 
         let client_priv = Scalar::random(&mut rng);
-        let mut client = Client::new(&mut rng, client_priv, server_pub);
+        let mut client = HandshakingClient::new(&mut rng, client_priv, server_pub);
 
         let handshake_req = client.request_handshake(&mut rng);
         let (mut server_conn, handshake_resp) = server
@@ -46,14 +32,20 @@ mod tests {
             .process_response(&handshake_resp)
             .expect("should handle server response successfully");
 
-        assert_eq!(
-            client_conn.to_server.derive_array::<8>(b"test"),
-            server_conn.to_server.derive_array::<8>(b"test")
-        );
+        let mut client_send = b"this is fine".to_vec();
+        client_send.extend_from_slice(&[0u8; TAG_LEN]);
+        client_conn.send(&mut client_send);
 
-        assert_eq!(
-            server_conn.to_client.derive_array::<8>(b"test"),
-            client_conn.to_client.derive_array::<8>(b"test")
-        );
+        let server_recv =
+            server_conn.receive(&mut client_send).expect("should receive message successfully");
+        assert_eq!(server_recv, b"this is fine");
+
+        let mut server_send = b"yeah, it's ok".to_vec();
+        server_send.extend_from_slice(&[0u8; TAG_LEN]);
+        server_conn.send(&mut server_send);
+
+        let client_recv =
+            client_conn.receive(&mut server_send).expect("should receive message successfully");
+        assert_eq!(client_recv, b"yeah, it's ok");
     }
 }
