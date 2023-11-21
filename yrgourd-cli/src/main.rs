@@ -12,7 +12,8 @@ use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite, LengthDelimit
 use yrgourd::curve25519_dalek::{RistrettoPoint, Scalar};
 use yrgourd::lockstitch::{Protocol, TAG_LEN};
 use yrgourd::{
-    Client, HandshakeRequest, HandshakeResponse, Server, HANDSHAKE_REQ_LEN, HANDSHAKE_RESP_LEN,
+    ClientHandshake, HandshakeRequest, HandshakeResponse, ServerHandshake, HANDSHAKE_REQ_LEN,
+    HANDSHAKE_RESP_LEN,
 };
 
 #[tokio::main]
@@ -24,15 +25,15 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
     let static_priv = Scalar::random(&mut rng);
     let static_pub = RistrettoPoint::mul_base(&static_priv);
-    let server = Server::new(static_priv);
+    let server = ServerHandshake::new(static_priv);
 
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        let mut client = Client::new(&mut rng, static_priv, static_pub);
+        let mut client = ClientHandshake::new(&mut rng, static_priv, static_pub);
         let mut conn = TcpStream::connect(&addr).await.expect("unable to connect");
         dbg!("client requesting handshake");
-        let req = client.request_handshake(&mut rng);
+        let req = client.request(&mut rng);
         conn.write_all(&req.to_bytes()).await.expect("should send handshake");
 
         dbg!("client receiving handshake");
@@ -41,7 +42,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let resp = HandshakeResponse::from_bytes(resp);
 
         dbg!("client switching to duplex");
-        let (recv, send) = client.process_response(&resp).expect("should handshake successfully");
+        let (recv, send) = client.finalize(&resp).expect("should handshake successfully");
 
         let sender = Sender::new(send);
         let receiver = Receiver::new(recv);
@@ -81,7 +82,7 @@ async fn main() -> Result<(), anyhow::Error> {
             let handshake = HandshakeRequest::from_bytes(request);
 
             // Process the handshake and generate a response.
-            let Some((recv, send, resp)) = server.respond_handshake(OsRng, &handshake) else {
+            let Some((recv, send, resp)) = server.respond(OsRng, &handshake) else {
                 println!("bad handshake");
                 return;
             };
