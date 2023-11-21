@@ -5,17 +5,18 @@ use rand::{CryptoRng, RngCore};
 
 use crate::messages::{HandshakeRequest, HandshakeResponse};
 
-pub struct HandshakingServer {
+#[derive(Clone)]
+pub struct Server {
     protocol: Protocol,
     static_priv: Scalar,
     static_pub: [u8; 32],
 }
 
-impl HandshakingServer {
-    pub fn new(static_priv: Scalar) -> HandshakingServer {
+impl Server {
+    pub fn new(static_priv: Scalar) -> Server {
         // Calculate and encode the server's static public key.
         let static_pub = RistrettoPoint::mul_base(&static_priv).compress().to_bytes();
-        HandshakingServer { protocol: Protocol::new("yrgourd.v1"), static_priv, static_pub }
+        Server { protocol: Protocol::new("yrgourd.v1"), static_priv, static_pub }
     }
 
     /// Response to a client handshake request. If the handshake request is valid, returns a
@@ -24,7 +25,7 @@ impl HandshakingServer {
         &mut self,
         mut rng: impl RngCore + CryptoRng,
         handshake: &HandshakeRequest,
-    ) -> Option<(ConnectedServer, HandshakeResponse)> {
+    ) -> Option<(Protocol, Protocol, HandshakeResponse)> {
         // Mix the server's static public key into the protocol.
         self.protocol.mix(b"server-static-pub", &self.static_pub);
 
@@ -88,33 +89,14 @@ impl HandshakingServer {
         let mut s = ((self.static_priv * r) + k).to_bytes();
         self.protocol.encrypt(b"server-proof-scalar", &mut s);
 
+        // Fork the protocol into receiver and sender clones.
+        let mut receiver = self.protocol.clone();
+        receiver.mix(b"sender", b"client");
+        let mut sender = self.protocol.clone();
+        sender.mix(b"sender", b"server");
+
         // Return a connected state object and a handshake response, containing the encrypted
         // commitment point and the encrypted proof scalar.
-        Some((ConnectedServer::new(&self.protocol), HandshakeResponse { i, s }))
-    }
-}
-
-pub struct ConnectedServer {
-    send: Protocol,
-    receive: Protocol,
-}
-
-impl ConnectedServer {
-    pub fn new(protocol: &Protocol) -> ConnectedServer {
-        let mut send = protocol.clone();
-        send.mix(b"sender", b"server");
-
-        let mut receive = protocol.clone();
-        receive.mix(b"sender", b"client");
-
-        ConnectedServer { send, receive }
-    }
-
-    pub fn send(&mut self, in_out: &mut [u8]) {
-        self.send.seal(b"message", in_out);
-    }
-
-    pub fn receive<'a>(&mut self, in_out: &'a mut [u8]) -> Option<&'a [u8]> {
-        self.receive.open(b"message", in_out)
+        Some((receiver, sender, HandshakeResponse { i, s }))
     }
 }

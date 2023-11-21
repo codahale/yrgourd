@@ -9,4 +9,6 @@ edition = "2021"
 curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
 lockstitch = "0.17.0"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
+
+[dev-dependencies]
 rand_chacha = "0.3.1"
