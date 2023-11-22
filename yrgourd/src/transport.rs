@@ -2,7 +2,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::{Buf, Bytes, BytesMut};
-use curve25519_dalek::{RistrettoPoint, Scalar};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
 use rand::{CryptoRng, RngCore};
@@ -12,6 +11,7 @@ use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
 use crate::handshake::{ClientHandshake, HandshakeRequest, HandshakeResponse, ServerHandshake};
+use crate::keys::{PrivateKey, PublicKey};
 
 pin_project! {
     pub struct Transport<S> {
@@ -28,11 +28,11 @@ where
     pub async fn initiate_handshake(
         mut conn: S,
         mut rng: impl RngCore + CryptoRng,
-        static_priv: Scalar,
-        server_static_pub: RistrettoPoint,
+        private_key: &PrivateKey,
+        server_public_key: PublicKey,
     ) -> io::Result<Transport<S>> {
         // Initialize a client handshake state and initiate a handshake.
-        let mut handshake = ClientHandshake::new(&mut rng, static_priv, server_static_pub);
+        let mut handshake = ClientHandshake::new(&mut rng, private_key, server_public_key);
         let req = handshake.initiate(&mut rng);
         conn.write_all(&req.to_bytes()).await?;
 
@@ -52,10 +52,10 @@ where
     pub async fn accept_handshake(
         mut conn: S,
         mut rng: impl RngCore + CryptoRng,
-        static_priv: Scalar,
+        private_key: &PrivateKey,
     ) -> io::Result<Transport<S>> {
         // Initialize a server handshake state.
-        let mut handshake = ServerHandshake::new(static_priv);
+        let mut handshake = ServerHandshake::new(private_key);
 
         // Read and parse the handshake request from the client.
         let mut request = [0u8; HandshakeRequest::LEN];

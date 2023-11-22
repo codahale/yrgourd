@@ -5,8 +5,7 @@ use rand_chacha::ChaChaRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::curve25519_dalek::{RistrettoPoint, Scalar};
-use yrgourd::Transport;
+use yrgourd::{PrivateKey, Transport};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -71,15 +70,14 @@ async fn main() -> Result<(), io::Error> {
 async fn proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::Result<()> {
     // TODO add key management
     let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-    let server_static_priv = Scalar::random(&mut rng);
-    let server_static_pub = RistrettoPoint::mul_base(&server_static_priv);
-    let client_static_priv = Scalar::random(&mut rng);
+    let server_key = PrivateKey::random(&mut rng);
+    let client_key = PrivateKey::random(&mut rng);
 
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
         let mut outbound =
-            Transport::initiate_handshake(outbound, OsRng, client_static_priv, server_static_pub)
+            Transport::initiate_handshake(outbound, OsRng, &client_key, server_key.public_key)
                 .await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
@@ -98,11 +96,11 @@ async fn proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::
 async fn reverse_proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::Result<()> {
     // TODO add key management
     let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-    let server_static_priv = Scalar::random(&mut rng);
+    let server_key = PrivateKey::random(&mut rng);
 
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = Transport::accept_handshake(inbound, OsRng, server_static_priv).await?;
+        let mut inbound = Transport::accept_handshake(inbound, OsRng, &server_key).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)

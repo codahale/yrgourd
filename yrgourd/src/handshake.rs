@@ -3,6 +3,8 @@ use curve25519_dalek::{RistrettoPoint, Scalar};
 use lockstitch::Protocol;
 use rand::{CryptoRng, RngCore};
 
+use crate::keys::{PrivateKey, PublicKey};
+
 #[derive(Debug, Clone, Copy)]
 pub struct HandshakeRequest {
     pub ephemeral_pub: [u8; 32],
@@ -57,59 +59,49 @@ impl HandshakeResponse {
     }
 }
 
-pub struct ClientHandshake {
+pub struct ClientHandshake<'a> {
     protocol: Protocol,
-    static_priv: Scalar,
-    static_pub: [u8; 32],
-    ephemeral_priv: Scalar,
-    ephemeral_pub: [u8; 32],
-    server_static_pub: RistrettoPoint,
+    private_key: &'a PrivateKey,
+    server_public_key: PublicKey,
+    ephemeral_private_key: PrivateKey,
 }
 
-impl ClientHandshake {
+impl<'a> ClientHandshake<'a> {
     pub fn new(
-        mut rng: impl RngCore + CryptoRng,
-        static_priv: Scalar,
-        server_static_pub: RistrettoPoint,
-    ) -> ClientHandshake {
-        // Calculate and encode the client's static public key.
-        let static_pub = RistrettoPoint::mul_base(&static_priv).compress().to_bytes();
-
-        // Generate an ephemeral private key and calculate and encode the ephemeral public key.
-        let ephemeral_priv = Scalar::random(&mut rng);
-        let ephemeral_pub = RistrettoPoint::mul_base(&ephemeral_priv).compress().to_bytes();
-
+        rng: impl RngCore + CryptoRng,
+        private_key: &'a PrivateKey,
+        server_public_key: PublicKey,
+    ) -> ClientHandshake<'a> {
         ClientHandshake {
             protocol: Protocol::new("yrgourd.v1"),
-            static_priv,
-            static_pub,
-            ephemeral_priv,
-            ephemeral_pub,
-            server_static_pub,
+            private_key,
+            server_public_key,
+            ephemeral_private_key: PrivateKey::random(rng),
         }
     }
 
     pub fn initiate(&mut self, mut rng: impl RngCore + CryptoRng) -> HandshakeRequest {
         // Mix the server's static public key into the protocol.
-        self.protocol.mix(b"server-static-pub", self.server_static_pub.compress().as_bytes());
+        self.protocol.mix(b"server-static-pub", &self.server_public_key.encoded);
 
         // Mix the client's ephemeral public key into the protocol.
-        self.protocol.mix(b"client-ephemeral-pub", &self.ephemeral_pub);
+        self.protocol.mix(b"client-ephemeral-pub", &self.ephemeral_private_key.public_key.encoded);
 
         // Calculate the ephemeral shared secret and mix it into the protocol.
-        let ephemeral_shared = (self.server_static_pub * self.ephemeral_priv).compress().to_bytes();
+        let ephemeral_shared =
+            (self.server_public_key.q * self.ephemeral_private_key.d).compress().to_bytes();
         self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
 
         // Encrypt the client's static public key.
-        let mut static_pub = self.static_pub;
+        let mut static_pub = self.private_key.public_key.encoded;
         self.protocol.encrypt(b"client-static-pub", &mut static_pub);
 
         // Calculate the static shared secret and mix it into the protocol.
-        let static_shared = (self.server_static_pub * self.static_priv).compress().to_bytes();
+        let static_shared = (self.server_public_key.q * self.private_key.d).compress().to_bytes();
         self.protocol.mix(b"static-shared", &static_shared);
 
         // Generate a hedged commitment scalar and commitment point.
-        let k = self.protocol.hedge(&mut rng, &[self.static_priv.as_bytes()], 10_000, |clone| {
+        let k = self.protocol.hedge(&mut rng, &[self.private_key.d.as_bytes()], 10_000, |clone| {
             Some(Scalar::from_bytes_mod_order_wide(&clone.derive_array(b"commitment-scalar")))
         });
         let i = RistrettoPoint::mul_base(&k);
@@ -124,12 +116,17 @@ impl ClientHandshake {
         );
 
         // Calculate and encrypt the proof scalar for the client's signature.
-        let mut s = ((self.static_priv * r) + k).to_bytes();
+        let mut s = ((self.private_key.d * r) + k).to_bytes();
         self.protocol.encrypt(b"client-proof-scalar", &mut s);
 
         // Send the client's ephemeral public key, the client's encrypted static public key, and the
         // two signature components: the encrypted commitment point and the encrypted proof scalar.
-        HandshakeRequest { ephemeral_pub: self.ephemeral_pub, static_pub, i, s }
+        HandshakeRequest {
+            ephemeral_pub: self.ephemeral_private_key.public_key.encoded,
+            static_pub,
+            i,
+            s,
+        }
     }
 
     pub fn finalize(&mut self, response: &HandshakeResponse) -> Option<(Protocol, Protocol)> {
@@ -148,7 +145,7 @@ impl ClientHandshake {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
         // Verify the client's signature and return a connected state object if valid.
-        (RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-self.server_static_pub, &s)
+        (RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-self.server_public_key.q, &s)
             .compress()
             .as_bytes()
             == &i)
@@ -165,17 +162,14 @@ impl ClientHandshake {
 }
 
 #[derive(Clone)]
-pub struct ServerHandshake {
+pub struct ServerHandshake<'a> {
     protocol: Protocol,
-    static_priv: Scalar,
-    static_pub: [u8; 32],
+    private_key: &'a PrivateKey,
 }
 
-impl ServerHandshake {
-    pub fn new(static_priv: Scalar) -> ServerHandshake {
-        // Calculate and encode the server's static public key.
-        let static_pub = RistrettoPoint::mul_base(&static_priv).compress().to_bytes();
-        ServerHandshake { protocol: Protocol::new("yrgourd.v1"), static_priv, static_pub }
+impl<'a> ServerHandshake<'a> {
+    pub fn new(private_key: &'a PrivateKey) -> ServerHandshake<'a> {
+        ServerHandshake { protocol: Protocol::new("yrgourd.v1"), private_key }
     }
 
     /// Response to a client handshake request. If the handshake request is valid, returns a
@@ -186,7 +180,7 @@ impl ServerHandshake {
         handshake: &HandshakeRequest,
     ) -> Option<(Protocol, Protocol, HandshakeResponse)> {
         // Mix the server's static public key into the protocol.
-        self.protocol.mix(b"server-static-pub", &self.static_pub);
+        self.protocol.mix(b"server-static-pub", &self.private_key.public_key.encoded);
 
         // Parse the client's ephemeral public key and mix it into the protocol.
         let ephemeral_pub =
@@ -194,7 +188,7 @@ impl ServerHandshake {
         self.protocol.mix(b"client-ephemeral-pub", &handshake.ephemeral_pub);
 
         // Calculate the ephemeral shared secret and mix it into the protocol.
-        let ephemeral_shared = (ephemeral_pub * self.static_priv).compress().to_bytes();
+        let ephemeral_shared = (ephemeral_pub * self.private_key.d).compress().to_bytes();
         self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
 
         // Decrypt and parse the client's static public key.
@@ -203,7 +197,7 @@ impl ServerHandshake {
         let static_pub = CompressedRistretto::from_slice(&static_pub).ok()?.decompress()?;
 
         // Calculate the static shared secret and mix it into the protocol.
-        let static_shared = (static_pub * self.static_priv).compress().to_bytes();
+        let static_shared = (static_pub * self.private_key.d).compress().to_bytes();
         self.protocol.mix(b"static-shared", &static_shared);
 
         // Decrypt the client's encoded commitment point of the client's signature.
@@ -230,7 +224,7 @@ impl ServerHandshake {
         }
 
         // Generate a hedged commitment scalar and commitment point.
-        let k = self.protocol.hedge(&mut rng, &[self.static_priv.as_bytes()], 10_000, |clone| {
+        let k = self.protocol.hedge(&mut rng, &[self.private_key.d.as_bytes()], 10_000, |clone| {
             Some(Scalar::from_bytes_mod_order_wide(&clone.derive_array(b"commitment-scalar")))
         });
         let i = RistrettoPoint::mul_base(&k);
@@ -245,7 +239,7 @@ impl ServerHandshake {
         );
 
         // Calculate and encrypt the proof scalar for the server's signature.
-        let mut s = ((self.static_priv * r) + k).to_bytes();
+        let mut s = ((self.private_key.d * r) + k).to_bytes();
         self.protocol.encrypt(b"server-proof-scalar", &mut s);
 
         // Fork the protocol into receiver and sender clones.
@@ -270,13 +264,11 @@ mod tests {
     #[test]
     fn round_trip() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let server_key = PrivateKey::random(&mut rng);
+        let client_key = PrivateKey::random(&mut rng);
 
-        let server_priv = Scalar::random(&mut rng);
-        let server_pub = RistrettoPoint::mul_base(&server_priv);
-        let mut server = ServerHandshake::new(server_priv);
-
-        let client_priv = Scalar::random(&mut rng);
-        let mut client = ClientHandshake::new(&mut rng, client_priv, server_pub);
+        let mut server = ServerHandshake::new(&server_key);
+        let mut client = ClientHandshake::new(&mut rng, &client_key, server_key.public_key);
 
         let handshake_req = client.initiate(&mut rng);
         let (mut server_recv, mut server_send, handshake_resp) = server

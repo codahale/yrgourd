@@ -1,6 +1,9 @@
+pub use crate::errors::*;
+pub use crate::keys::*;
 pub use crate::transport::Transport;
-pub use curve25519_dalek;
 
 mod codec;
+mod errors;
 mod handshake;
+mod keys;
 mod transport;
