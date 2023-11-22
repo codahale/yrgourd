@@ -1,12 +1,12 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use curve25519_dalek::{RistrettoPoint, Scalar};
-use futures::{Sink, Stream};
+use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
 use rand::{CryptoRng, RngCore};
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
@@ -15,7 +15,9 @@ use crate::handshake::{ClientHandshake, HandshakeRequest, HandshakeResponse, Ser
 
 pin_project! {
     pub struct Transport<S> {
+        #[pin]
         frame: Framed<S, Codec>,
+        chunk: Option<BytesMut>,
     }
 }
 
@@ -44,7 +46,7 @@ where
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
-        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)) })
+        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)), chunk: None })
     }
 
     pub async fn accept_handshake(
@@ -68,11 +70,19 @@ where
         // Send the handshake response.
         conn.write_all(&resp.to_bytes()).await?;
 
-        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)) })
+        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)), chunk: None })
     }
 
     pub async fn shutdown(self) -> io::Result<()> {
         self.frame.into_inner().shutdown().await
+    }
+
+    fn has_chunk(&self) -> bool {
+        if let Some(ref chunk) = self.chunk {
+            chunk.remaining() > 0
+        } else {
+            false
+        }
     }
 }
 
@@ -83,7 +93,7 @@ where
     type Item = Result<BytesMut, io::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(self.project().frame).poll_next(cx)
+        self.project().frame.poll_next(cx)
     }
 }
 
@@ -94,18 +104,104 @@ where
     type Error = io::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.project().frame).poll_ready(cx)
+        self.project().frame.poll_ready(cx)
     }
 
     fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
-        Pin::new(self.project().frame).start_send(item)
+        self.project().frame.start_send(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.project().frame).poll_flush(cx)
+        self.project().frame.poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.project().frame).poll_close(cx)
+        self.project().frame.poll_close(cx)
+    }
+}
+
+impl<S> AsyncBufRead for Transport<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        loop {
+            if self.as_mut().has_chunk() {
+                // This unwrap is very sad, but it can't be avoided.
+                let buf = self.project().chunk.as_ref().unwrap().chunk();
+                return Poll::Ready(Ok(buf));
+            } else {
+                match self.as_mut().project().frame.poll_next(cx) {
+                    Poll::Ready(Some(Ok(chunk))) => {
+                        // Go around the loop in case the chunk is empty.
+                        *self.as_mut().project().chunk = Some(chunk);
+                    }
+                    Poll::Ready(Some(Err(err))) => return Poll::Ready(Err(err)),
+                    Poll::Ready(None) => return Poll::Ready(Ok(&[])),
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
+        }
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        if amt > 0 {
+            self.project().chunk.as_mut().expect("No chunk present").advance(amt);
+        }
+    }
+}
+
+impl<S> AsyncRead for Transport<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+
+        let inner_buf = match self.as_mut().poll_fill_buf(cx) {
+            Poll::Ready(Ok(buf)) => buf,
+            Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
+            Poll::Pending => return Poll::Pending,
+        };
+        let len = std::cmp::min(inner_buf.len(), buf.remaining());
+        buf.put_slice(&inner_buf[..len]);
+
+        self.consume(len);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<S> AsyncWrite for Transport<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        let mut this = self.project();
+        ready!(this.frame.as_mut().poll_ready(cx))?;
+        match Pin::new(this.frame).as_mut().start_send(Bytes::copy_from_slice(buf)) {
+            Ok(()) => Poll::Ready(Ok(buf.len())),
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+        self.project().frame.poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        self.project().frame.poll_close(cx)
     }
 }
