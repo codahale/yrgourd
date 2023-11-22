@@ -1,11 +1,10 @@
 use clap::Parser;
 use futures::{future, FutureExt, SinkExt, StreamExt};
-use rand_chacha::rand_core::{OsRng, SeedableRng};
-use rand_chacha::ChaChaRng;
+use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::{PrivateKey, Transport};
+use yrgourd::{PrivateKey, PublicKey, Transport};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -15,6 +14,8 @@ struct CliOpts {
 
 #[derive(Debug, Parser)]
 enum Command {
+    /// Generate a private/public key pair.
+    GenerateKey,
     /// Run a plaintext echo server.
     Echo(EchoOpts),
     /// Run a plaintext connect client.
@@ -42,6 +43,18 @@ struct ProxyOpts {
     #[clap(long, default_value = "127.0.0.1:6060")]
     from: String,
 
+    #[clap(
+        long,
+        default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
+    )]
+    private_key: PrivateKey,
+
+    #[clap(
+        long,
+        default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
+    )]
+    server_public_key: PublicKey,
+
     #[clap(long, default_value = "127.0.0.1:5050")]
     to: String,
 }
@@ -51,6 +64,12 @@ struct ReverseProxyOpts {
     #[clap(long, default_value = "127.0.0.1:5050")]
     from: String,
 
+    #[clap(
+        long,
+        default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
+    )]
+    private_key: PrivateKey,
+
     #[clap(long, default_value = "127.0.0.1:4040")]
     to: String,
 }
@@ -59,26 +78,35 @@ struct ReverseProxyOpts {
 async fn main() -> Result<(), io::Error> {
     let opts = CliOpts::parse();
     match opts.cmd {
+        Command::GenerateKey => generate_key(),
         Command::Echo(args) => echo(&args.addr).await,
         Command::Connect(args) => connect(&args.addr).await,
-        Command::Proxy(args) => proxy(&args.from, &args.to).await,
-        Command::ReverseProxy(args) => reverse_proxy(&args.from, &args.to).await,
+        Command::Proxy(args) => {
+            proxy(&args.from, &args.to, &args.private_key, args.server_public_key).await
+        }
+        Command::ReverseProxy(args) => reverse_proxy(&args.from, &args.to, &args.private_key).await,
     }
 }
 
-/// Listen for plaintext connections to `from` and make encrypted connections to `to`.
-async fn proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::Result<()> {
-    // TODO add key management
-    let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-    let server_key = PrivateKey::random(&mut rng);
-    let client_key = PrivateKey::random(&mut rng);
+fn generate_key() -> io::Result<()> {
+    let private_key = PrivateKey::random(OsRng);
+    println!("private key = {}", private_key);
+    println!("public key = {}", private_key.public_key);
+    Ok(())
+}
 
+/// Listen for plaintext connections to `from` and make encrypted connections to `to`.
+async fn proxy(
+    from: impl ToSocketAddrs,
+    to: impl ToSocketAddrs + Clone,
+    client_key: &PrivateKey,
+    server_public_key: PublicKey,
+) -> io::Result<()> {
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
         let mut outbound =
-            Transport::initiate_handshake(outbound, OsRng, &client_key, server_key.public_key)
-                .await?;
+            Transport::initiate_handshake(outbound, OsRng, client_key, server_public_key).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -93,14 +121,14 @@ async fn proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::
 }
 
 /// Listen for encrypted connections to `from` and make plaintext connections to `to`.
-async fn reverse_proxy(from: impl ToSocketAddrs, to: impl ToSocketAddrs + Clone) -> io::Result<()> {
-    // TODO add key management
-    let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-    let server_key = PrivateKey::random(&mut rng);
-
+async fn reverse_proxy(
+    from: impl ToSocketAddrs,
+    to: impl ToSocketAddrs + Clone,
+    server_key: &PrivateKey,
+) -> io::Result<()> {
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = Transport::accept_handshake(inbound, OsRng, &server_key).await?;
+        let mut inbound = Transport::accept_handshake(inbound, OsRng, server_key).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)

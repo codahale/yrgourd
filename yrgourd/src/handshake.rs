@@ -1,7 +1,7 @@
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
 use lockstitch::Protocol;
-use rand::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 
 use crate::keys::{PrivateKey, PublicKey};
 
@@ -256,8 +256,8 @@ impl<'a> ServerHandshake<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
+    use rand_core::SeedableRng;
 
     use super::*;
 

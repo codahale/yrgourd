@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
-use rand::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;

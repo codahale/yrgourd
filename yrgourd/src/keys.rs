@@ -1,8 +1,9 @@
+use std::fmt::Display;
 use std::str::FromStr;
 
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
-use rand::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
@@ -33,7 +34,13 @@ impl FromStr for PublicKey {
     }
 }
 
-#[derive(Debug)]
+impl Display for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.encoded))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PrivateKey {
     pub(crate) d: Scalar,
     pub public_key: PublicKey,
@@ -61,5 +68,11 @@ impl FromStr for PrivateKey {
 
         let d: Option<Scalar> = Scalar::from_canonical_bytes(encoded).into();
         d.ok_or(ParsePrivateKeyError::InvalidPrivateKey).map(Into::into)
+    }
+}
+
+impl Display for PrivateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.d.as_bytes()))
     }
 }
