@@ -12,7 +12,9 @@ pub struct HandshakeRequest {
 }
 
 impl HandshakeRequest {
-    pub fn from_bytes(b: [u8; HANDSHAKE_REQ_LEN]) -> HandshakeRequest {
+    pub const LEN: usize = 32 + 32 + 32 + 32;
+
+    pub fn from_bytes(b: [u8; Self::LEN]) -> HandshakeRequest {
         HandshakeRequest {
             ephemeral_pub: b[..32].try_into().expect("should be 32 bytes"),
             static_pub: b[32..64].try_into().expect("should be 32 bytes"),
@@ -21,8 +23,8 @@ impl HandshakeRequest {
         }
     }
 
-    pub fn to_bytes(self) -> [u8; HANDSHAKE_REQ_LEN] {
-        let mut req = [0u8; HANDSHAKE_REQ_LEN];
+    pub fn to_bytes(self) -> [u8; Self::LEN] {
+        let mut req = [0u8; Self::LEN];
         req[..32].copy_from_slice(&self.ephemeral_pub);
         req[32..64].copy_from_slice(&self.static_pub);
         req[64..96].copy_from_slice(&self.i);
@@ -31,8 +33,6 @@ impl HandshakeRequest {
     }
 }
 
-pub const HANDSHAKE_REQ_LEN: usize = 32 + 32 + 32 + 32;
-
 #[derive(Debug, Clone, Copy)]
 pub struct HandshakeResponse {
     pub i: [u8; 32],
@@ -40,22 +40,22 @@ pub struct HandshakeResponse {
 }
 
 impl HandshakeResponse {
-    pub fn from_bytes(b: [u8; HANDSHAKE_RESP_LEN]) -> HandshakeResponse {
+    pub const LEN: usize = 32 + 32;
+
+    pub fn from_bytes(b: [u8; Self::LEN]) -> HandshakeResponse {
         HandshakeResponse {
             i: b[..32].try_into().expect("should be 32 bytes"),
             s: b[32..].try_into().expect("should be 32 bytes"),
         }
     }
 
-    pub fn to_bytes(self) -> [u8; HANDSHAKE_RESP_LEN] {
-        let mut resp = [0u8; HANDSHAKE_RESP_LEN];
+    pub fn to_bytes(self) -> [u8; Self::LEN] {
+        let mut resp = [0u8; Self::LEN];
         resp[..32].copy_from_slice(&self.i);
         resp[32..].copy_from_slice(&self.s);
         resp
     }
 }
-
-pub const HANDSHAKE_RESP_LEN: usize = 32 + 32;
 
 pub struct ClientHandshake {
     protocol: Protocol,
@@ -89,7 +89,7 @@ impl ClientHandshake {
         }
     }
 
-    pub fn request(&mut self, mut rng: impl RngCore + CryptoRng) -> HandshakeRequest {
+    pub fn initiate(&mut self, mut rng: impl RngCore + CryptoRng) -> HandshakeRequest {
         // Mix the server's static public key into the protocol.
         self.protocol.mix(b"server-static-pub", self.server_static_pub.compress().as_bytes());
 
@@ -278,7 +278,7 @@ mod tests {
         let client_priv = Scalar::random(&mut rng);
         let mut client = ClientHandshake::new(&mut rng, client_priv, server_pub);
 
-        let handshake_req = client.request(&mut rng);
+        let handshake_req = client.initiate(&mut rng);
         let (mut server_recv, mut server_send, handshake_resp) = server
             .respond(&mut rng, &handshake_req)
             .expect("should handle client request successfully");

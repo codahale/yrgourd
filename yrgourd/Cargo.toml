@@ -3,12 +3,15 @@ name = "yrgourd"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+bytes = "1.5.0"
 curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
+futures = "0.3.29"
 lockstitch = "0.17.0"
+pin-project-lite = "0.2.13"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
+tokio = { version = "1.34.0", default-features = false, features = ["net", "bytes", "sync"] }
+tokio-util = { version = "0.7.10", default-features = false, features = ["codec", "io"] }
 
 [dev-dependencies]
 rand_chacha = "0.3.1"

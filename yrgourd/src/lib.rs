@@ -1,6 +1,6 @@
+pub use crate::transport::Transport;
 pub use curve25519_dalek;
-pub use lockstitch;
 
+mod codec;
 mod handshake;
-
-pub use handshake::*;
+mod transport;
