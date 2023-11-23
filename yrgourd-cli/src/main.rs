@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use clap::Parser;
 use futures::{future, FutureExt, SinkExt, StreamExt};
 use rand::rngs::OsRng;
@@ -70,6 +72,9 @@ struct ReverseProxyOpts {
     )]
     private_key: PrivateKey,
 
+    #[clap(long)]
+    allowed_clients: Vec<PublicKey>,
+
     #[clap(long, default_value = "127.0.0.1:4040")]
     to: String,
 }
@@ -84,7 +89,9 @@ async fn main() -> Result<(), io::Error> {
         Command::Proxy(args) => {
             proxy(&args.from, &args.to, &args.private_key, args.server_public_key).await
         }
-        Command::ReverseProxy(args) => reverse_proxy(&args.from, &args.to, &args.private_key).await,
+        Command::ReverseProxy(args) => {
+            reverse_proxy(&args.from, &args.to, &args.private_key, &args.allowed_clients).await
+        }
     }
 }
 
@@ -125,10 +132,14 @@ async fn reverse_proxy(
     from: impl ToSocketAddrs,
     to: impl ToSocketAddrs + Clone,
     server_key: &PrivateKey,
+    allowed_clients: &[PublicKey],
 ) -> io::Result<()> {
+    let allowed_clients = allowed_clients.iter().copied().collect::<HashSet<PublicKey>>();
+    let allowed_clients = if allowed_clients.is_empty() { None } else { Some(&allowed_clients) };
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = Transport::accept_handshake(inbound, OsRng, server_key).await?;
+        let mut inbound =
+            Transport::accept_handshake(inbound, OsRng, server_key, allowed_clients).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)

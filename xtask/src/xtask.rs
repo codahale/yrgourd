@@ -38,10 +38,9 @@ fn main() -> Result<()> {
 
 fn ci(sh: &Shell) -> Result<()> {
     cmd!(sh, "cargo fmt --check").run()?;
-    cmd!(sh, "cargo build --no-default-features").run()?;
     cmd!(sh, "cargo build --all-targets --all-features").run()?;
     cmd!(sh, "cargo test").run()?;
-    cmd!(sh, "cargo clippy --all-features --tests --benches").run()?;
+    cmd!(sh, "cargo clippy --all-features --all-targets").run()?;
 
     Ok(())
 }

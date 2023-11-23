@@ -7,10 +7,22 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct PublicKey {
     pub(crate) q: RistrettoPoint,
     pub(crate) encoded: [u8; 32],
+}
+
+impl TryFrom<[u8; 32]> for PublicKey {
+    type Error = ();
+
+    fn try_from(encoded: [u8; 32]) -> Result<Self, Self::Error> {
+        let q = CompressedRistretto::from_slice(&encoded)
+            .expect("should be 32 bytes")
+            .decompress()
+            .ok_or(())?;
+        Ok(PublicKey { q, encoded })
+    }
 }
 
 impl From<RistrettoPoint> for PublicKey {
@@ -37,6 +49,18 @@ impl FromStr for PublicKey {
 impl Display for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", hex::encode(self.encoded))
+    }
+}
+
+impl std::hash::Hash for PublicKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.encoded.hash(state);
+    }
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        lockstitch::ct_eq(&self.encoded, &other.encoded)
     }
 }
 

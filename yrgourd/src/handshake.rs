@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
 use lockstitch::Protocol;
@@ -184,15 +186,20 @@ impl<'a> Initiator<'a> {
 
 /// A handshake acceptor.
 #[derive(Debug, Clone)]
-pub struct Acceptor<'a> {
+pub struct Acceptor<'a, 'b> {
     protocol: Protocol,
     private_key: &'a PrivateKey,
+    allowed_initiators: Option<&'b HashSet<PublicKey>>,
 }
 
-impl<'a> Acceptor<'a> {
-    /// Create a new [`Acceptor`] with the given private key.
-    pub fn new(private_key: &'a PrivateKey) -> Acceptor<'a> {
-        Acceptor { protocol: Protocol::new("yrgourd.v1"), private_key }
+impl<'a, 'b> Acceptor<'a, 'b> {
+    /// Create a new [`Acceptor`] with the given private key with initiators optionally restricted
+    /// to the given set of public keys.
+    pub fn new(
+        private_key: &'a PrivateKey,
+        allowed_initiators: Option<&'b HashSet<PublicKey>>,
+    ) -> Acceptor<'a, 'b> {
+        Acceptor { protocol: Protocol::new("yrgourd.v1"), private_key, allowed_initiators }
     }
 
     /// Responds to a handshake given the initiator's [`Request`]. If valid, returns a [`Response`]
@@ -217,10 +224,15 @@ impl<'a> Acceptor<'a> {
         // Decrypt and parse the initiator's static public key.
         let mut static_pub = handshake.static_pub;
         self.protocol.decrypt(b"initiator-static-pub", &mut static_pub);
-        let static_pub = CompressedRistretto::from_slice(&static_pub).ok()?.decompress()?;
+        let static_pub = PublicKey::try_from(static_pub).ok()?;
+
+        // If initiators are restricted, check that the initiator is in the allowed set.
+        if !self.allowed_initiators.map(|s| s.contains(&static_pub)).unwrap_or(true) {
+            return None;
+        }
 
         // Calculate the static shared secret and mix it into the protocol.
-        let static_shared = (static_pub * self.private_key.d).compress().to_bytes();
+        let static_shared = (static_pub.q * self.private_key.d).compress().to_bytes();
         self.protocol.mix(b"static-shared", &static_shared);
 
         // Decrypt the initiator's encoded commitment point of the initiator's signature.
@@ -238,7 +250,7 @@ impl<'a> Acceptor<'a> {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
         // Verify the initiator's signature and early exit if invalid.
-        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-static_pub, &s)
+        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-static_pub.q, &s)
             .compress()
             .as_bytes()
             != &i
@@ -290,9 +302,50 @@ mod tests {
         let acceptor_key = PrivateKey::random(&mut rng);
         let initiator_key = PrivateKey::random(&mut rng);
 
-        let mut acceptor = Acceptor::new(&acceptor_key);
+        let mut acceptor = Acceptor::new(&acceptor_key, None);
         let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
 
+        let handshake_req = initiator.initiate(&mut rng);
+        let (mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
+            .respond(&mut rng, &handshake_req)
+            .expect("should handle initiator request successfully");
+
+        let (mut initiator_recv, mut initiator_send) = initiator
+            .finalize(&handshake_resp)
+            .expect("should handle acceptor response successfully");
+
+        assert_eq!(
+            acceptor_recv.derive_array::<8>(b"test"),
+            initiator_send.derive_array::<8>(b"test")
+        );
+        assert_eq!(
+            initiator_recv.derive_array::<8>(b"test"),
+            acceptor_send.derive_array::<8>(b"test")
+        );
+    }
+
+    #[test]
+    fn restricted_initiators() {
+        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let acceptor_key = PrivateKey::random(&mut rng);
+        let initiator_key = PrivateKey::random(&mut rng);
+        let bad_initiator_key = PrivateKey::random(&mut rng);
+
+        let mut allowed_initiators = HashSet::new();
+        allowed_initiators.insert(initiator_key.public_key);
+
+        let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
+        let mut bad_initiator =
+            Initiator::new(&mut rng, &bad_initiator_key, acceptor_key.public_key);
+
+        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
+        let bad_handshake_req = bad_initiator.initiate(&mut rng);
+        assert!(
+            acceptor.respond(&mut rng, &bad_handshake_req).is_none(),
+            "should not allow a handshake with an initiator not in the set"
+        );
+
+        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
         let handshake_req = initiator.initiate(&mut rng);
         let (mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
             .respond(&mut rng, &handshake_req)

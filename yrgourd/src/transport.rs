@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -68,9 +69,10 @@ where
         mut stream: S,
         mut rng: impl RngCore + CryptoRng,
         private_key: &PrivateKey,
+        allowed_initiators: Option<&HashSet<PublicKey>>,
     ) -> io::Result<Transport<S>> {
         // Initialize a handshake acceptor state.
-        let mut handshake = Acceptor::new(private_key);
+        let mut handshake = Acceptor::new(private_key, allowed_initiators);
 
         // Read and parse the handshake request from the initiator.
         let mut request = [0u8; Request::LEN];
@@ -243,8 +245,9 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t =
-                Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key).await.unwrap();
+            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key, None)
+                .await
+                .unwrap();
 
             t.write_all(b"this is a server").await.unwrap();
             t.flush().await.unwrap();
