@@ -1,5 +1,5 @@
 [workspace]
-members = ["benchmarks", "yrgourd", "yrgourd-cli"]
+members = ["benchmarks", "xtask", "yrgourd", "yrgourd-cli"]
 resolver = "2"
 
 [workspace.lints.rust]

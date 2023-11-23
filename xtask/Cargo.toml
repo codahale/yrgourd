@@ -1,0 +1,17 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.75"
+clap = { version = "4.4.8", features = ["derive"] }
+xshell = "0.2.5"
+
+[[bin]]
+name = "xtask"
+path = "src/xtask.rs"
+
+[lints]
+workspace = true
