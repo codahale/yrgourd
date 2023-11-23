@@ -3,6 +3,9 @@ use lockstitch::{Protocol, TAG_LEN};
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
+/// A duplex codec for encrypted frames. Each frame has a 3-byte little-endian length prefix, then
+/// an encrypted payload, then a 16-byte authenticator tag.
+#[derive(Debug)]
 pub struct Codec {
     recv: Protocol,
     send: Protocol,
@@ -10,6 +13,7 @@ pub struct Codec {
 }
 
 impl Codec {
+    /// Create a new [`Codec`] with the given `recv` and `send` protocols.
     pub fn new(recv: Protocol, send: Protocol) -> Codec {
         Codec {
             recv,
