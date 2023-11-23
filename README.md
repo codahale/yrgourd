@@ -151,9 +151,9 @@ On my M2 MacBook Air:
 ```text
 Timer precision: 41.66 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  291.8 µs      │ 533 µs        │ 318.9 µs      │ 323.1 µs      │ 2284    │ 2284
-╰─ transfer   26.51 ms      │ 37.12 ms      │ 27.58 ms      │ 27.78 ms      │ 100     │ 100
-              3.954 GB/s    │ 2.824 GB/s    │ 3.801 GB/s    │ 3.774 GB/s    │         │
+├─ handshake  290.8 µs      │ 571.4 µs      │ 319.6 µs      │ 324 µs        │ 2276    │ 2276
+╰─ transfer   24.28 ms      │ 26.66 ms      │ 25.31 ms      │ 25.35 ms      │ 100     │ 100
+              4.317 GB/s    │ 3.933 GB/s    │ 4.141 GB/s    │ 4.135 GB/s    │         │
 ```
 
 `handshake` measures the time it takes to establish a yrgourd connection over a Tokio duplex stream;

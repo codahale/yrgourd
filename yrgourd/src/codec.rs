@@ -26,10 +26,11 @@ impl Encoder<Bytes> for Codec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let mut ciphertext = item.to_vec();
+        let mut ciphertext = BytesMut::with_capacity(item.len() + TAG_LEN);
+        ciphertext.extend_from_slice(&item);
         ciphertext.extend_from_slice(&[0u8; TAG_LEN]);
         self.send.seal(b"message", &mut ciphertext);
-        self.codec.encode(Bytes::copy_from_slice(&ciphertext), dst)
+        self.codec.encode(Bytes::from(ciphertext), dst)
     }
 }
 
