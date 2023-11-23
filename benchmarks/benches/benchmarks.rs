@@ -2,7 +2,7 @@
 
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
-use tokio::io::{self, AsyncReadExt, BufReader, BufWriter};
+use tokio::io::{self, AsyncReadExt};
 use yrgourd::{PrivateKey, Transport};
 
 #[divan::bench]
@@ -67,7 +67,7 @@ fn transfer(bencher: divan::Bencher) {
                         let mut t = Transport::accept_handshake(acceptor, OsRng, &acceptor_key)
                             .await
                             .unwrap();
-                        io::copy_buf(&mut t, &mut io::sink()).await.unwrap();
+                        io::copy(&mut t, &mut io::sink()).await.unwrap();
                         t.shutdown().await.unwrap();
                     });
 
@@ -80,12 +80,7 @@ fn transfer(bencher: divan::Bencher) {
                         )
                         .await
                         .unwrap();
-                        io::copy_buf(
-                            &mut BufReader::with_capacity(1024 * 1024, io::repeat(0xed).take(LEN)),
-                            &mut BufWriter::with_capacity(1024 * 1024, &mut t),
-                        )
-                        .await
-                        .unwrap();
+                        io::copy(&mut io::repeat(0xed).take(LEN), &mut t).await.unwrap();
                         t.shutdown().await.unwrap();
                     });
 
