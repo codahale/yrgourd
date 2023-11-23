@@ -44,7 +44,7 @@ impl Decoder for Codec {
         };
 
         if item.len() < TAG_LEN {
-            return Ok(None);
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
         }
 
         let Some(len) = self.recv.open(b"message", &mut item).map(|p| p.len()) else {
