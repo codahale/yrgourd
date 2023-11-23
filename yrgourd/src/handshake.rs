@@ -5,17 +5,24 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::keys::{PrivateKey, PublicKey};
 
+/// A request sent by a handshake initiator.
 #[derive(Debug, Clone, Copy)]
 pub struct Request {
+    /// The initiator's ephemeral public key.
     pub ephemeral_pub: [u8; 32],
+    /// The initiator's encrypted static public key.
     pub static_pub: [u8; 32],
+    /// The encrypted commitment point of the initiator's signature.
     pub i: [u8; 32],
+    /// The encrypted proof scalar of the initiator's signature.
     pub s: [u8; 32],
 }
 
 impl Request {
+    /// The length of an encoded request in bytes.
     pub const LEN: usize = 32 + 32 + 32 + 32;
 
+    /// Decodes a serialized request.
     pub fn from_bytes(b: [u8; Self::LEN]) -> Request {
         Request {
             ephemeral_pub: b[..32].try_into().expect("should be 32 bytes"),
@@ -25,6 +32,7 @@ impl Request {
         }
     }
 
+    /// Encodes a serialized request.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         let mut req = [0u8; Self::LEN];
         req[..32].copy_from_slice(&self.ephemeral_pub);
@@ -35,15 +43,20 @@ impl Request {
     }
 }
 
+/// A response sent by a handshake acceptor.
 #[derive(Debug, Clone, Copy)]
 pub struct Response {
+    /// The encrypted commitment point of the acceptor's signature.
     pub i: [u8; 32],
+    /// The encrypted proof scalar of the acceptor's signature.
     pub s: [u8; 32],
 }
 
 impl Response {
+    /// The length of an encoded response in bytes.
     pub const LEN: usize = 32 + 32;
 
+    /// Decodes a serialized response.
     pub fn from_bytes(b: [u8; Self::LEN]) -> Response {
         Response {
             i: b[..32].try_into().expect("should be 32 bytes"),
@@ -51,6 +64,7 @@ impl Response {
         }
     }
 
+    /// Encodes a serialized response.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         let mut resp = [0u8; Self::LEN];
         resp[..32].copy_from_slice(&self.i);
@@ -59,6 +73,8 @@ impl Response {
     }
 }
 
+/// A handshake initiator.
+#[derive(Debug)]
 pub struct Initiator<'a> {
     protocol: Protocol,
     private_key: &'a PrivateKey,
@@ -67,6 +83,7 @@ pub struct Initiator<'a> {
 }
 
 impl<'a> Initiator<'a> {
+    /// Creates a new [`Initiator`] with the given private key and the given acceptor's public key.
     pub fn new(
         rng: impl RngCore + CryptoRng,
         private_key: &'a PrivateKey,
@@ -80,6 +97,7 @@ impl<'a> Initiator<'a> {
         }
     }
 
+    /// Initiates a handshake, returning the [`Request`] to be sent to the acceptor.
     pub fn initiate(&mut self, mut rng: impl RngCore + CryptoRng) -> Request {
         // Mix the acceptor's static public key into the protocol.
         self.protocol.mix(b"acceptor-static-pub", &self.acceptor_public_key.encoded);
@@ -126,6 +144,8 @@ impl<'a> Initiator<'a> {
         Request { ephemeral_pub: self.ephemeral_private_key.public_key.encoded, static_pub, i, s }
     }
 
+    /// Finalizes a handshake given the acceptor's [`Response`]. If valid, returns a `(recv, send)`
+    /// pair of [`Protocol`]s for transport.
     pub fn finalize(&mut self, response: &Response) -> Option<(Protocol, Protocol)> {
         // Decrypt the initiator's encoded commitment point of the acceptor's signature.
         let mut i = response.i;
@@ -162,19 +182,21 @@ impl<'a> Initiator<'a> {
     }
 }
 
-#[derive(Clone)]
+/// A handshake acceptor.
+#[derive(Debug, Clone)]
 pub struct Acceptor<'a> {
     protocol: Protocol,
     private_key: &'a PrivateKey,
 }
 
 impl<'a> Acceptor<'a> {
+    /// Create a new [`Acceptor`] with the given private key.
     pub fn new(private_key: &'a PrivateKey) -> Acceptor<'a> {
         Acceptor { protocol: Protocol::new("yrgourd.v1"), private_key }
     }
 
-    /// Response to a initiator handshake request. If the handshake request is valid, returns a
-    /// connected state object and a handshake response to be sent to the initiator.
+    /// Responds to a handshake given the initiator's [`Request`]. If valid, returns a [`Response`]
+    /// to be sent to the initiator and a `(recv, send)` pair of [`Protocol`]s for transport.
     pub fn respond(
         &mut self,
         mut rng: impl RngCore + CryptoRng,
