@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
-use crate::handshake::{ClientHandshake, HandshakeRequest, HandshakeResponse, ServerHandshake};
+use crate::handshake::{Acceptor, Initiator, Request, Response};
 use crate::keys::{PrivateKey, PublicKey};
 
 pin_project! {
@@ -29,19 +29,19 @@ where
         mut conn: S,
         mut rng: impl RngCore + CryptoRng,
         private_key: &PrivateKey,
-        server_public_key: PublicKey,
+        acceptor_public_key: PublicKey,
     ) -> io::Result<Transport<S>> {
-        // Initialize a client handshake state and initiate a handshake.
-        let mut handshake = ClientHandshake::new(&mut rng, private_key, server_public_key);
+        // Initialize a handshake initiator state and initiate a handshake.
+        let mut handshake = Initiator::new(&mut rng, private_key, acceptor_public_key);
         let req = handshake.initiate(&mut rng);
         conn.write_all(&req.to_bytes()).await?;
 
-        // Read and parse the handshake response from the server.
-        let mut resp = [0u8; HandshakeResponse::LEN];
+        // Read and parse the handshake response from the acceptor.
+        let mut resp = [0u8; Response::LEN];
         conn.read_exact(&mut resp).await?;
-        let resp = HandshakeResponse::from_bytes(resp);
+        let resp = Response::from_bytes(resp);
 
-        // Validate the server response.
+        // Validate the acceptor response.
         let Some((recv, send)) = handshake.finalize(&resp) else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
@@ -54,13 +54,13 @@ where
         mut rng: impl RngCore + CryptoRng,
         private_key: &PrivateKey,
     ) -> io::Result<Transport<S>> {
-        // Initialize a server handshake state.
-        let mut handshake = ServerHandshake::new(private_key);
+        // Initialize a handshake acceptor state.
+        let mut handshake = Acceptor::new(private_key);
 
-        // Read and parse the handshake request from the client.
-        let mut request = [0u8; HandshakeRequest::LEN];
+        // Read and parse the handshake request from the initiator.
+        let mut request = [0u8; Request::LEN];
         conn.read_exact(&mut request).await?;
-        let req = HandshakeRequest::from_bytes(request);
+        let req = Request::from_bytes(request);
 
         // Process the handshake and generate a response.
         let (recv, send, resp) = handshake
@@ -216,30 +216,35 @@ mod tests {
     #[tokio::test]
     async fn round_trip() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let client_key = PrivateKey::random(&mut rng);
-        let server_key = PrivateKey::random(&mut rng);
-        let server_public_key = server_key.public_key;
+        let initiator_key = PrivateKey::random(&mut rng);
+        let acceptor_key = PrivateKey::random(&mut rng);
+        let acceptor_public_key = acceptor_key.public_key;
 
-        let (client_conn, server_conn) = io::duplex(64);
+        let (initiator_conn, acceptor_conn) = io::duplex(64);
 
-        let server = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(server_conn, OsRng, &server_key).await.unwrap();
+        let acceptor = tokio::spawn(async move {
+            let mut t =
+                Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key).await.unwrap();
 
             t.write_all(b"this is a server").await.unwrap();
             t.flush().await.unwrap();
 
-            let mut buf = vec![0u8; 0];
+            let mut buf = Vec::new();
             t.read_to_end(&mut buf).await.unwrap();
             assert_eq!(&buf, b"this is a client");
 
             t.shutdown().await.unwrap();
         });
 
-        let client = tokio::spawn(async move {
-            let mut t =
-                Transport::initiate_handshake(client_conn, OsRng, &client_key, server_public_key)
-                    .await
-                    .unwrap();
+        let initiator = tokio::spawn(async move {
+            let mut t = Transport::initiate_handshake(
+                initiator_conn,
+                OsRng,
+                &initiator_key,
+                acceptor_public_key,
+            )
+            .await
+            .unwrap();
 
             t.write_all(b"this is a client").await.unwrap();
             t.flush().await.unwrap();
@@ -251,8 +256,8 @@ mod tests {
             t.shutdown().await.unwrap();
         });
 
-        server.await.unwrap();
-        client.await.unwrap();
+        acceptor.await.unwrap();
+        initiator.await.unwrap();
 
         Ok(())
     }

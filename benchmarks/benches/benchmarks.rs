@@ -9,28 +9,29 @@ fn handshake(bencher: divan::Bencher) {
     bencher
         .with_inputs(|| {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-            let server_key = PrivateKey::random(OsRng);
-            let server_public_key = server_key.public_key;
-            let client_key = PrivateKey::random(OsRng);
-            (rt, server_key, client_key, server_public_key)
+            let acceptor_key = PrivateKey::random(OsRng);
+            let acceptor_public_key = acceptor_key.public_key;
+            let initiator_key = PrivateKey::random(OsRng);
+            (rt, acceptor_key, initiator_key, acceptor_public_key)
         })
-        .bench_values(|(rt, server_key, client_key, server_public_key)| {
+        .bench_values(|(rt, acceptor_key, initiator_key, acceptor_public_key)| {
             rt.block_on(async {
-                let (client_conn, server_conn) = io::duplex(64);
+                let (initiator_conn, acceptor_conn) = io::duplex(64);
 
-                let server = tokio::spawn(async move {
-                    let t =
-                        Transport::accept_handshake(server_conn, OsRng, &server_key).await.unwrap();
+                let acceptor = tokio::spawn(async move {
+                    let t = Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key)
+                        .await
+                        .unwrap();
 
                     t.shutdown().await.unwrap();
                 });
 
-                let client = tokio::spawn(async move {
+                let initiator = tokio::spawn(async move {
                     let t = Transport::initiate_handshake(
-                        client_conn,
+                        initiator_conn,
                         OsRng,
-                        &client_key,
-                        server_public_key,
+                        &initiator_key,
+                        acceptor_public_key,
                     )
                     .await
                     .unwrap();
@@ -38,8 +39,8 @@ fn handshake(bencher: divan::Bencher) {
                     t.shutdown().await.unwrap();
                 });
 
-                server.await.unwrap();
-                client.await.unwrap();
+                acceptor.await.unwrap();
+                initiator.await.unwrap();
             });
         });
 }
