@@ -28,6 +28,11 @@ where
 {
     /// Initiate a handshake via the given stream. Returns a [`Transport`] over the given stream if
     /// the handshake is successful.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
+    /// reads or writes during the handshake.
     pub async fn initiate_handshake(
         mut stream: S,
         mut rng: impl RngCore + CryptoRng,
@@ -54,6 +59,11 @@ where
 
     /// Accept a handshake request over the given stream. Returns a [`Transport`] over the given
     /// stream if the handshake is successful.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
+    /// reads or writes during the handshake.
     pub async fn accept_handshake(
         mut stream: S,
         mut rng: impl RngCore + CryptoRng,
@@ -79,6 +89,10 @@ where
     }
 
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stream returns an error shutting down.
     pub async fn shutdown(self) -> io::Result<()> {
         self.frame.into_inner().shutdown().await
     }
