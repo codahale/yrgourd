@@ -205,3 +205,55 @@ where
         self.project().frame.poll_close(cx)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rand_chacha::ChaChaRng;
+    use rand_core::{OsRng, SeedableRng};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn round_trip() -> io::Result<()> {
+        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let client_key = PrivateKey::random(&mut rng);
+        let server_key = PrivateKey::random(&mut rng);
+        let server_public_key = server_key.public_key;
+
+        let (client_conn, server_conn) = io::duplex(64);
+
+        let server = tokio::spawn(async move {
+            let mut t = Transport::accept_handshake(server_conn, OsRng, &server_key).await.unwrap();
+
+            t.write_all(b"this is a server").await.unwrap();
+            t.flush().await.unwrap();
+
+            let mut buf = vec![0u8; 0];
+            t.read_to_end(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"this is a client");
+
+            t.shutdown().await.unwrap();
+        });
+
+        let client = tokio::spawn(async move {
+            let mut t =
+                Transport::initiate_handshake(client_conn, OsRng, &client_key, server_public_key)
+                    .await
+                    .unwrap();
+
+            t.write_all(b"this is a client").await.unwrap();
+            t.flush().await.unwrap();
+
+            let mut buf = [0u8; 16];
+            t.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"this is a server");
+
+            t.shutdown().await.unwrap();
+        });
+
+        server.await.unwrap();
+        client.await.unwrap();
+
+        Ok(())
+    }
+}
