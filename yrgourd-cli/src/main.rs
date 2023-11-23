@@ -114,7 +114,7 @@ async fn proxy(
                         println!("Failed to transfer; error={}", e);
                     }
                 })
-                .await
+                .await;
         });
     }
     Ok(())
@@ -137,7 +137,7 @@ async fn reverse_proxy(
                         println!("Failed to transfer; error={}", e);
                     }
                 })
-                .await
+                .await;
         });
     }
     Ok(())
