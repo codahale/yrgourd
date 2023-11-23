@@ -14,6 +14,7 @@ use crate::handshake::{Acceptor, Initiator, Request, Response};
 use crate::keys::{PrivateKey, PublicKey};
 
 pin_project! {
+    /// A yrgourd connection.
     pub struct Transport<S> {
         #[pin]
         frame: Framed<S, Codec>,
@@ -25,8 +26,10 @@ impl<S> Transport<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    /// Initiate a handshake via the given stream. Returns a [`Transport`] over the given stream if
+    /// the handshake is successful.
     pub async fn initiate_handshake(
-        mut conn: S,
+        mut stream: S,
         mut rng: impl RngCore + CryptoRng,
         private_key: &PrivateKey,
         acceptor_public_key: PublicKey,
@@ -34,11 +37,11 @@ where
         // Initialize a handshake initiator state and initiate a handshake.
         let mut handshake = Initiator::new(&mut rng, private_key, acceptor_public_key);
         let req = handshake.initiate(&mut rng);
-        conn.write_all(&req.to_bytes()).await?;
+        stream.write_all(&req.to_bytes()).await?;
 
         // Read and parse the handshake response from the acceptor.
         let mut resp = [0u8; Response::LEN];
-        conn.read_exact(&mut resp).await?;
+        stream.read_exact(&mut resp).await?;
         let resp = Response::from_bytes(resp);
 
         // Validate the acceptor response.
@@ -46,11 +49,13 @@ where
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
-        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)), chunk: None })
+        Ok(Transport { frame: Framed::new(stream, Codec::new(recv, send)), chunk: None })
     }
 
+    /// Accept a handshake request over the given stream. Returns a [`Transport`] over the given
+    /// stream if the handshake is successful.
     pub async fn accept_handshake(
-        mut conn: S,
+        mut stream: S,
         mut rng: impl RngCore + CryptoRng,
         private_key: &PrivateKey,
     ) -> io::Result<Transport<S>> {
@@ -59,7 +64,7 @@ where
 
         // Read and parse the handshake request from the initiator.
         let mut request = [0u8; Request::LEN];
-        conn.read_exact(&mut request).await?;
+        stream.read_exact(&mut request).await?;
         let req = Request::from_bytes(request);
 
         // Process the handshake and generate a response.
@@ -68,11 +73,12 @@ where
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
-        conn.write_all(&resp.to_bytes()).await?;
+        stream.write_all(&resp.to_bytes()).await?;
 
-        Ok(Transport { frame: Framed::new(conn, Codec::new(recv, send)), chunk: None })
+        Ok(Transport { frame: Framed::new(stream, Codec::new(recv, send)), chunk: None })
     }
 
+    /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
     pub async fn shutdown(self) -> io::Result<()> {
         self.frame.into_inner().shutdown().await
     }
