@@ -12,37 +12,38 @@ fn handshake(bencher: divan::Bencher) {
             let acceptor_key = PrivateKey::random(OsRng);
             let acceptor_public_key = acceptor_key.public_key;
             let initiator_key = PrivateKey::random(OsRng);
-            (rt, acceptor_key, initiator_key, acceptor_public_key)
+            let (initiator, acceptor) = io::duplex(64);
+            (rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)
         })
-        .bench_values(|(rt, acceptor_key, initiator_key, acceptor_public_key)| {
-            rt.block_on(async {
-                let (initiator_conn, acceptor_conn) = io::duplex(64);
+        .bench_values(
+            |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
+                rt.block_on(async {
+                    let acceptor = tokio::spawn(async move {
+                        let t = Transport::accept_handshake(acceptor, OsRng, &acceptor_key)
+                            .await
+                            .unwrap();
 
-                let acceptor = tokio::spawn(async move {
-                    let t = Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key)
+                        t.shutdown().await.unwrap();
+                    });
+
+                    let initiator = tokio::spawn(async move {
+                        let t = Transport::initiate_handshake(
+                            initiator,
+                            OsRng,
+                            &initiator_key,
+                            acceptor_public_key,
+                        )
                         .await
                         .unwrap();
 
-                    t.shutdown().await.unwrap();
+                        t.shutdown().await.unwrap();
+                    });
+
+                    acceptor.await.unwrap();
+                    initiator.await.unwrap();
                 });
-
-                let initiator = tokio::spawn(async move {
-                    let t = Transport::initiate_handshake(
-                        initiator_conn,
-                        OsRng,
-                        &initiator_key,
-                        acceptor_public_key,
-                    )
-                    .await
-                    .unwrap();
-
-                    t.shutdown().await.unwrap();
-                });
-
-                acceptor.await.unwrap();
-                initiator.await.unwrap();
-            });
-        });
+            },
+        );
 }
 
 fn main() {
