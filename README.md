@@ -129,13 +129,13 @@ and `yg_send` for encrypting sent packets.
 Transport between the initiator and acceptor uses length-delimited frames with a 3-byte
 little-endian length prepended to each packet. (The length does not include these 3 bytes.)
 
-To send a packet, the initiator would perform the following:
+To send a frame, the sender would perform the following:
 
 ```text
 yg_send ← seal(yg_send, "message", message)
 ```
 
-To receive a packet, the initiator would perform the following:
+To receive a packet, the receiver would perform the following:
 
 ```text
 yg_recv ← open(yg_recv, "message", message)
@@ -143,6 +143,20 @@ yg_recv ← open(yg_recv, "message", message)
 
 The initiator's `yg_send` and the acceptor's `yg_recv` stay synchronized, likewise with the
 initiator's `yg_recv` and the acceptor's `yg_send`.
+
+Each frame begins with a message code. A frame which begins with a `1` contains only data. A frame
+with a `2` contains a ephemeral Ristretto255 public key prepended to the data for rekeying. To
+initiate a rekey, the transport sends a `2` frame and then performs the following:
+
+```text
+yg_send ← mix(yg_send, "rekey-shared", ecdh(receiver.pub, ephemeral.priv))
+```
+
+The receiver, upon decrypting a `2` frame performs the following:
+
+```text
+yg_recv ← mix(yg_recv, "rekey-shared", ecdh(ephemeral.pub, receiver.priv))
+```
 
 ## Performance
 
