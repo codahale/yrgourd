@@ -47,11 +47,10 @@ impl Decoder for Codec {
             return Ok(None);
         };
 
-        if item.len() < TAG_LEN {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
-        }
-
-        let Some(len) = self.recv.open(b"message", &mut item).map(|p| p.len()) else {
+        let Some(len) = (item.len() >= TAG_LEN)
+            .then_some(&mut item)
+            .and_then(|i| self.recv.open(b"message", i).map(|p| p.len()))
+        else {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
         };
 
