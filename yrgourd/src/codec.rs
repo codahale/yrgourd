@@ -1,7 +1,10 @@
+use std::time::Duration;
+
 use bytes::{BufMut, Bytes, BytesMut};
 use lockstitch::{Protocol, TAG_LEN};
 use rand_core::{CryptoRng, RngCore};
 use tokio::io;
+use tokio::time::Instant;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::{PrivateKey, PublicKey};
@@ -12,20 +15,32 @@ const DATA_WITH_KEY: u8 = 2;
 /// A duplex codec for encrypted frames. Each frame has a 3-byte little-endian length prefix, then
 /// an encrypted payload, then a 16-byte authenticator tag.
 #[derive(Debug)]
-pub struct Codec {
+pub struct Codec<R> {
+    rng: R,
     sender: PrivateKey,
     receiver: PublicKey,
     recv: Protocol,
     send: Protocol,
     codec: LengthDelimitedCodec,
-    ratchet: Option<PrivateKey>,
+    last_ratchet: Instant,
+    ratchet_period: Duration,
 }
 
-impl Codec {
+impl<R> Codec<R>
+where
+    R: RngCore + CryptoRng,
+{
     /// Create a new [`Codec`] with the sender's private key, the receiver's public key, and the
     /// given `recv` and `send` protocols.
-    pub fn new(sender: PrivateKey, receiver: PublicKey, recv: Protocol, send: Protocol) -> Codec {
+    pub fn new(
+        rng: R,
+        sender: PrivateKey,
+        receiver: PublicKey,
+        recv: Protocol,
+        send: Protocol,
+    ) -> Codec<R> {
         Codec {
+            rng,
             sender,
             receiver,
             recv,
@@ -34,25 +49,33 @@ impl Codec {
                 .little_endian()
                 .length_field_length(3)
                 .new_codec(),
-            ratchet: None,
+            last_ratchet: Instant::now(),
+            ratchet_period: Duration::from_secs(120),
         }
     }
 
     /// Generate an ephemeral key pair and use it to ratchet the `send` protocol after the next
     /// frame is sent.
-    pub fn ratchet(&mut self, rng: impl RngCore + CryptoRng) {
-        if self.ratchet.is_none() {
-            self.ratchet = Some(PrivateKey::random(rng));
-        }
+    pub fn ratchet(&mut self) {
+        self.last_ratchet = Instant::now() - Duration::from_secs(10_000_000_000);
     }
 }
 
-impl Encoder<Bytes> for Codec {
+impl<R> Encoder<Bytes> for Codec<R>
+where
+    R: RngCore + CryptoRng,
+{
     type Error = io::Error;
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        // Pop any ephemeral key off for ratcheting.
-        let ratchet = self.ratchet.take();
+        // Check to see if our ratchet deadline has passed.
+        let ratchet = if self.last_ratchet.elapsed() > self.ratchet_period {
+            // If so, generate an ephemeral key and reset the deadline.
+            self.last_ratchet = Instant::now();
+            Some(PrivateKey::random(&mut self.rng))
+        } else {
+            None
+        };
 
         let mut frame = if let Some(ref ephemeral) = ratchet {
             // If there is an ephemeral key, prepend the DATA_WITH_KEY frame typeand the
@@ -85,7 +108,7 @@ impl Encoder<Bytes> for Codec {
     }
 }
 
-impl Decoder for Codec {
+impl<R> Decoder for Codec<R> {
     type Item = BytesMut;
     type Error = io::Error;
 

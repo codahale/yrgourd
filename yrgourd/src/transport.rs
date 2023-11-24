@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
@@ -9,7 +8,6 @@ use pin_project_lite::pin_project;
 use rand_core::{CryptoRng, RngCore};
 use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::time::Instant;
 use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
@@ -20,10 +18,8 @@ pin_project! {
     /// A yrgourd connection.
     pub struct Transport<S, R> {
         #[pin]
-        frame: Framed<S, Codec>,
+        frame: Framed<S, Codec<R>>,
         chunk: Option<BytesMut>,
-        rng: R,
-        ratchet_ts: Instant,
     }
 }
 
@@ -61,10 +57,11 @@ where
         };
 
         Ok(Transport {
-            frame: Framed::new(stream, Codec::new(private_key, acceptor_public_key, recv, send)),
+            frame: Framed::new(
+                stream,
+                Codec::new(rng, private_key, acceptor_public_key, recv, send),
+            ),
             chunk: None,
-            rng,
-            ratchet_ts: Instant::now(),
         })
     }
 
@@ -98,15 +95,13 @@ where
         stream.write_all(&resp.to_bytes()).await?;
 
         Ok(Transport {
-            frame: Framed::new(stream, Codec::new(private_key, pk, recv, send)),
+            frame: Framed::new(stream, Codec::new(rng, private_key, pk, recv, send)),
             chunk: None,
-            rng,
-            ratchet_ts: Instant::now(),
         })
     }
 
-    pub fn ratchet(&mut self, rng: impl RngCore + CryptoRng) {
-        self.frame.codec_mut().ratchet(rng);
+    pub fn ratchet(&mut self) {
+        self.frame.codec_mut().ratchet();
     }
 
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
@@ -150,14 +145,7 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
-        let mut this = self.project();
-        // Check to see if our ratchet deadline has passed.
-        if this.ratchet_ts.elapsed() > Duration::from_secs(120) {
-            // If it has, ratchet the send state of the frame's codec and reset the deadline.
-            this.frame.codec_mut().ratchet(&mut this.rng);
-            *this.ratchet_ts = Instant::now();
-        }
-        this.frame.start_send(item)
+        self.project().frame.start_send(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -231,6 +219,7 @@ where
 impl<S, R> AsyncWrite for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
+    R: RngCore + CryptoRng,
 {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -349,7 +338,7 @@ mod tests {
             t.write_all(b"this is a client").await.unwrap();
             t.flush().await.unwrap();
 
-            t.ratchet(OsRng);
+            t.ratchet();
 
             // This frame is sent with the ephemeral public key.
             t.write_all(b" and I ratcheted the connection").await.unwrap();
