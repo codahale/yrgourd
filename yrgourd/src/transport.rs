@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, OsRng, RngCore};
 use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::Instant;
 use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
@@ -20,6 +22,7 @@ pin_project! {
         #[pin]
         frame: Framed<S, Codec>,
         chunk: Option<BytesMut>,
+        ratchet_ts: Instant,
     }
 }
 
@@ -58,6 +61,7 @@ where
         Ok(Transport {
             frame: Framed::new(stream, Codec::new(private_key, acceptor_public_key, recv, send)),
             chunk: None,
+            ratchet_ts: Instant::now(),
         })
     }
 
@@ -93,6 +97,7 @@ where
         Ok(Transport {
             frame: Framed::new(stream, Codec::new(private_key, pk, recv, send)),
             chunk: None,
+            ratchet_ts: Instant::now(),
         })
     }
 
@@ -140,7 +145,12 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
-        self.project().frame.start_send(item)
+        let mut this = self.project();
+        if this.ratchet_ts.elapsed() > Duration::from_secs(120) {
+            this.frame.codec_mut().ratchet(OsRng);
+            *this.ratchet_ts = Instant::now();
+        }
+        this.frame.start_send(item)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
