@@ -145,17 +145,17 @@ The initiator's `yg_send` and the acceptor's `yg_recv` stay synchronized, likewi
 initiator's `yg_recv` and the acceptor's `yg_send`.
 
 Each frame begins with a message code. A frame which begins with a `1` contains only data. A frame
-with a `2` contains a ephemeral Ristretto255 public key prepended to the data for rekeying. To
-initiate a rekey, the transport sends a `2` frame and then performs the following:
+with a `2` contains a ephemeral Ristretto255 public key prepended to the data for ratcheting. To
+initiate a ratchet, the transport sends a `2` frame and then performs the following:
 
 ```text
-yg_send ← mix(yg_send, "rekey-shared", ecdh(receiver.pub, ephemeral.priv))
+yg_send ← mix(yg_send, "ratchet-shared", ecdh(receiver.pub, ephemeral.priv))
 ```
 
 The receiver, upon decrypting a `2` frame performs the following:
 
 ```text
-yg_recv ← mix(yg_recv, "rekey-shared", ecdh(ephemeral.pub, receiver.priv))
+yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ephemeral.pub, receiver.priv))
 ```
 
 ## Performance

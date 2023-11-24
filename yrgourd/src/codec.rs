@@ -18,7 +18,7 @@ pub struct Codec {
     recv: Protocol,
     send: Protocol,
     codec: LengthDelimitedCodec,
-    rekey: Option<PrivateKey>,
+    ratchet: Option<PrivateKey>,
 }
 
 impl Codec {
@@ -34,17 +34,17 @@ impl Codec {
                 .little_endian()
                 .length_field_length(3)
                 .new_codec(),
-            rekey: None,
+            ratchet: None,
         }
     }
 
-    /// Generate an ephemeral key pair and use it to rekey the `send` protocol after the next frame
-    /// is sent.
-    pub fn rekey(&mut self, rng: impl RngCore + CryptoRng) {
-        if self.rekey.is_some() {
+    /// Generate an ephemeral key pair and use it to ratchet the `send` protocol after the next
+    /// frame is sent.
+    pub fn ratchet(&mut self, rng: impl RngCore + CryptoRng) {
+        if self.ratchet.is_some() {
             return;
         }
-        self.rekey = Some(PrivateKey::random(rng));
+        self.ratchet = Some(PrivateKey::random(rng));
     }
 }
 
@@ -52,10 +52,10 @@ impl Encoder<Bytes> for Codec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        // Pop any ephemeral key off for rekeying.
-        let rekey = self.rekey.take();
+        // Pop any ephemeral key off for ratcheting.
+        let ratchet = self.ratchet.take();
 
-        let mut output = if let Some(ref ephemeral) = rekey {
+        let mut output = if let Some(ref ephemeral) = ratchet {
             // If there is an ephemeral key, prepend the DATA_WITH_KEY message code and the
             // ephemeral public key to the data.
             let mut output = BytesMut::with_capacity(1 + 32 + item.len() + TAG_LEN);
@@ -76,9 +76,9 @@ impl Encoder<Bytes> for Codec {
         // Seal the whole message.
         self.send.seal(b"message", &mut output);
 
-        // Do any necessary rekeying after the message has been sealed.
-        if let Some(ephemeral) = rekey {
-            self.send.mix(b"rekey-shared", (ephemeral.d * self.receiver.q).compress().as_bytes());
+        // Do any necessary ratcheting after the message has been sealed.
+        if let Some(ephemeral) = ratchet {
+            self.send.mix(b"ratchet-shared", (ephemeral.d * self.receiver.q).compress().as_bytes());
         }
 
         // Prepend the length delimiter for the frame.
@@ -114,10 +114,10 @@ impl Decoder for Codec {
             // If it's just data, return it.
             Ok(Some(item))
         } else if message_type == DATA_WITH_KEY {
-            // If it's data with a key, parse the key and if possible, rekey the recv protocol with
+            // If it's data with a key, parse the key and if possible, ratchet the recv protocol with
             // the ephemeral shared secret.
             if let Ok(pk) = PublicKey::try_from(item.split_to(32).as_ref()) {
-                self.recv.mix(b"rekey-shared", (self.sender.d * pk.q).compress().as_bytes());
+                self.recv.mix(b"ratchet-shared", (self.sender.d * pk.q).compress().as_bytes());
             }
             // Return the data without the key.
             Ok(Some(item))

@@ -96,8 +96,8 @@ where
         })
     }
 
-    pub fn rekey(&mut self, rng: impl RngCore + CryptoRng) {
-        self.frame.codec_mut().rekey(rng);
+    pub fn ratchet(&mut self, rng: impl RngCore + CryptoRng) {
+        self.frame.codec_mut().ratchet(rng);
     }
 
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rekeying() -> io::Result<()> {
+    async fn ratcheting() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let initiator_key = PrivateKey::random(&mut rng);
         let acceptor_key = PrivateKey::random(&mut rng);
@@ -311,7 +311,7 @@ mod tests {
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await.unwrap();
-            assert_eq!(&buf, "this is a client and I rekeyed the connection and it was OK");
+            assert_eq!(&buf, "this is a client and I ratcheted the connection and it was OK");
 
             t.shutdown().await.unwrap();
         });
@@ -330,10 +330,10 @@ mod tests {
             t.write_all(b"this is a client").await.unwrap();
             t.flush().await.unwrap();
 
-            t.rekey(OsRng);
+            t.ratchet(OsRng);
 
             // This message is sent with the ephemeral public key.
-            t.write_all(b" and I rekeyed the connection").await.unwrap();
+            t.write_all(b" and I ratcheted the connection").await.unwrap();
             t.flush().await.unwrap();
 
             // This message is sent as data with the re-keyed state.
