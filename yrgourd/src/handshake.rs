@@ -225,7 +225,7 @@ impl<'a, 'b> Acceptor<'a, 'b> {
         // Decrypt and parse the initiator's static public key.
         let mut static_pub = handshake.static_pub;
         self.protocol.decrypt(b"initiator-static-pub", &mut static_pub);
-        let static_pub = PublicKey::try_from(static_pub).ok()?;
+        let static_pub = PublicKey::try_from(static_pub.as_ref()).ok()?;
 
         // If initiators are restricted, check that the initiator is in the allowed set.
         if !self.allowed_initiators.map(|s| s.contains(&static_pub)).unwrap_or(true) {

@@ -37,11 +37,11 @@ where
     pub async fn initiate_handshake(
         mut stream: S,
         mut rng: impl RngCore + CryptoRng,
-        private_key: &PrivateKey,
+        private_key: PrivateKey,
         acceptor_public_key: PublicKey,
     ) -> io::Result<Transport<S>> {
         // Initialize a handshake initiator state and initiate a handshake.
-        let mut handshake = Initiator::new(&mut rng, private_key, acceptor_public_key);
+        let mut handshake = Initiator::new(&mut rng, &private_key, acceptor_public_key);
         let req = handshake.initiate(&mut rng);
         stream.write_all(&req.to_bytes()).await?;
 
@@ -55,7 +55,10 @@ where
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
-        Ok(Transport { frame: Framed::new(stream, Codec::new(recv, send)), chunk: None })
+        Ok(Transport {
+            frame: Framed::new(stream, Codec::new(private_key, acceptor_public_key, recv, send)),
+            chunk: None,
+        })
     }
 
     /// Accept a handshake request over the given stream. Returns a [`Transport`] over the given
@@ -68,11 +71,11 @@ where
     pub async fn accept_handshake(
         mut stream: S,
         mut rng: impl RngCore + CryptoRng,
-        private_key: &PrivateKey,
+        private_key: PrivateKey,
         allowed_initiators: Option<&HashSet<PublicKey>>,
     ) -> io::Result<Transport<S>> {
         // Initialize a handshake acceptor state.
-        let mut handshake = Acceptor::new(private_key, allowed_initiators);
+        let mut handshake = Acceptor::new(&private_key, allowed_initiators);
 
         // Read and parse the handshake request from the initiator.
         let mut request = [0u8; Request::LEN];
@@ -80,14 +83,21 @@ where
         let req = Request::from_bytes(request);
 
         // Process the handshake and generate a response.
-        let (_, recv, send, resp) = handshake
+        let (pk, recv, send, resp) = handshake
             .respond(&mut rng, &req)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
         stream.write_all(&resp.to_bytes()).await?;
 
-        Ok(Transport { frame: Framed::new(stream, Codec::new(recv, send)), chunk: None })
+        Ok(Transport {
+            frame: Framed::new(stream, Codec::new(private_key, pk, recv, send)),
+            chunk: None,
+        })
+    }
+
+    pub fn rekey(&mut self, rng: impl RngCore + CryptoRng) {
+        self.frame.codec_mut().rekey(rng);
     }
 
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
@@ -245,7 +255,7 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, &acceptor_key, None)
+            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, None)
                 .await
                 .unwrap();
 
@@ -263,7 +273,7 @@ mod tests {
             let mut t = Transport::initiate_handshake(
                 initiator_conn,
                 OsRng,
-                &initiator_key,
+                initiator_key,
                 acceptor_public_key,
             )
             .await
@@ -275,6 +285,60 @@ mod tests {
             let mut buf = [0u8; 16];
             t.read_exact(&mut buf).await.unwrap();
             assert_eq!(&buf, b"this is a server");
+
+            t.shutdown().await.unwrap();
+        });
+
+        acceptor.await.unwrap();
+        initiator.await.unwrap();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rekeying() -> io::Result<()> {
+        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let initiator_key = PrivateKey::random(&mut rng);
+        let acceptor_key = PrivateKey::random(&mut rng);
+        let acceptor_public_key = acceptor_key.public_key;
+
+        let (initiator_conn, acceptor_conn) = io::duplex(64);
+
+        let acceptor = tokio::spawn(async move {
+            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, None)
+                .await
+                .unwrap();
+
+            let mut buf = String::new();
+            t.read_to_string(&mut buf).await.unwrap();
+            assert_eq!(&buf, "this is a client and I rekeyed the connection and it was OK");
+
+            t.shutdown().await.unwrap();
+        });
+
+        let initiator = tokio::spawn(async move {
+            let mut t = Transport::initiate_handshake(
+                initiator_conn,
+                OsRng,
+                initiator_key,
+                acceptor_public_key,
+            )
+            .await
+            .unwrap();
+
+            // This message is sent as data.
+            t.write_all(b"this is a client").await.unwrap();
+            t.flush().await.unwrap();
+
+            t.rekey(OsRng);
+
+            // This message is sent with the ephemeral public key.
+            t.write_all(b" and I rekeyed the connection").await.unwrap();
+            t.flush().await.unwrap();
+
+            // This message is sent as data with the re-keyed state.
+            t.write_all(b" and it was OK").await.unwrap();
+            t.flush().await.unwrap();
 
             t.shutdown().await.unwrap();
         });

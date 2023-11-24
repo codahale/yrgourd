@@ -13,14 +13,12 @@ pub struct PublicKey {
     pub(crate) encoded: [u8; 32],
 }
 
-impl TryFrom<[u8; 32]> for PublicKey {
+impl TryFrom<&[u8]> for PublicKey {
     type Error = ();
 
-    fn try_from(encoded: [u8; 32]) -> Result<Self, Self::Error> {
-        let q = CompressedRistretto::from_slice(&encoded)
-            .expect("should be 32 bytes")
-            .decompress()
-            .ok_or(())?;
+    fn try_from(encoded: &[u8]) -> Result<Self, Self::Error> {
+        let encoded: [u8; 32] = encoded.try_into().map_err(|_| ())?;
+        let q = CompressedRistretto::from_slice(&encoded).map_err(|_| ())?.decompress().ok_or(())?;
         Ok(PublicKey { q, encoded })
     }
 }

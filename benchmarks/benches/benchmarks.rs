@@ -20,7 +20,7 @@ fn handshake(bencher: divan::Bencher) {
             |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let t = Transport::accept_handshake(acceptor, OsRng, &acceptor_key, None)
+                        let t = Transport::accept_handshake(acceptor, OsRng, acceptor_key, None)
                             .await
                             .unwrap();
 
@@ -31,7 +31,7 @@ fn handshake(bencher: divan::Bencher) {
                         let t = Transport::initiate_handshake(
                             initiator,
                             OsRng,
-                            &initiator_key,
+                            initiator_key,
                             acceptor_public_key,
                         )
                         .await
@@ -65,7 +65,7 @@ fn transfer(bencher: divan::Bencher) {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
                         let mut t =
-                            Transport::accept_handshake(acceptor, OsRng, &acceptor_key, None)
+                            Transport::accept_handshake(acceptor, OsRng, acceptor_key, None)
                                 .await
                                 .unwrap();
                         io::copy(&mut t, &mut io::sink()).await.unwrap();
@@ -76,7 +76,7 @@ fn transfer(bencher: divan::Bencher) {
                         let mut t = Transport::initiate_handshake(
                             initiator,
                             OsRng,
-                            &initiator_key,
+                            initiator_key,
                             acceptor_public_key,
                         )
                         .await
