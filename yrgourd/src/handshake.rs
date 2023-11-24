@@ -228,7 +228,7 @@ impl<'a, 'b> Acceptor<'a, 'b> {
         let static_pub = PublicKey::try_from(static_pub.as_ref()).ok()?;
 
         // If initiators are restricted, check that the initiator is in the allowed set.
-        if !self.allowed_initiators.map(|s| s.contains(&static_pub)).unwrap_or(true) {
+        if self.allowed_initiators.map(|s| !s.contains(&static_pub)).unwrap_or(false) {
             return None;
         }
 
