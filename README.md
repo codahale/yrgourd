@@ -140,19 +140,19 @@ little-endian length prepended to each packet. (The length does not include thes
 To send a frame, the sender would perform the following:
 
 ```text
-yg_send ← seal(yg_send, "message", message)
+yg_send ← seal(yg_send, "frame", frame)
 ```
 
 To receive a packet, the receiver would perform the following:
 
 ```text
-yg_recv ← open(yg_recv, "message", message)
+yg_recv ← open(yg_recv, "frame", frame)
 ```
 
 The initiator's `yg_send` and the acceptor's `yg_recv` stay synchronized, likewise with the
 initiator's `yg_recv` and the acceptor's `yg_send`.
 
-Each frame begins with a message code. A frame which begins with a `1` contains only data. A frame
+Each frame begins with a frame type. A frame which begins with a `1` contains only data. A frame
 with a `2` contains a ephemeral Ristretto255 public key prepended to the data for ratcheting. To
 initiate a ratchet, the transport sends a `2` frame and then performs the following:
 

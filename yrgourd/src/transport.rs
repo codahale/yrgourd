@@ -345,17 +345,17 @@ mod tests {
             .await
             .unwrap();
 
-            // This message is sent as data.
+            // This frame is sent as data.
             t.write_all(b"this is a client").await.unwrap();
             t.flush().await.unwrap();
 
             t.ratchet(OsRng);
 
-            // This message is sent with the ephemeral public key.
+            // This frame is sent with the ephemeral public key.
             t.write_all(b" and I ratcheted the connection").await.unwrap();
             t.flush().await.unwrap();
 
-            // This message is sent as data with the re-keyed state.
+            // This frame is sent as data with the re-keyed state.
             t.write_all(b" and it was OK").await.unwrap();
             t.flush().await.unwrap();
 
