@@ -6,7 +6,7 @@ use std::time::Duration;
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Instant;
@@ -18,17 +18,19 @@ use crate::keys::{PrivateKey, PublicKey};
 
 pin_project! {
     /// A yrgourd connection.
-    pub struct Transport<S> {
+    pub struct Transport<S, R> {
         #[pin]
         frame: Framed<S, Codec>,
         chunk: Option<BytesMut>,
+        rng: R,
         ratchet_ts: Instant,
     }
 }
 
-impl<S> Transport<S>
+impl<S, R> Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
+    R: RngCore + CryptoRng,
 {
     /// Initiate a handshake via the given stream. Returns a [`Transport`] over the given stream if
     /// the handshake is successful.
@@ -39,10 +41,10 @@ where
     /// reads or writes during the handshake.
     pub async fn initiate_handshake(
         mut stream: S,
-        mut rng: impl RngCore + CryptoRng,
+        mut rng: R,
         private_key: PrivateKey,
         acceptor_public_key: PublicKey,
-    ) -> io::Result<Transport<S>> {
+    ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake initiator state and initiate a handshake.
         let mut handshake = Initiator::new(&mut rng, &private_key, acceptor_public_key);
         let req = handshake.initiate(&mut rng);
@@ -61,6 +63,7 @@ where
         Ok(Transport {
             frame: Framed::new(stream, Codec::new(private_key, acceptor_public_key, recv, send)),
             chunk: None,
+            rng,
             ratchet_ts: Instant::now(),
         })
     }
@@ -74,10 +77,10 @@ where
     /// reads or writes during the handshake.
     pub async fn accept_handshake(
         mut stream: S,
-        mut rng: impl RngCore + CryptoRng,
+        mut rng: R,
         private_key: PrivateKey,
         allowed_initiators: Option<&HashSet<PublicKey>>,
-    ) -> io::Result<Transport<S>> {
+    ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake acceptor state.
         let mut handshake = Acceptor::new(&private_key, allowed_initiators);
 
@@ -97,6 +100,7 @@ where
         Ok(Transport {
             frame: Framed::new(stream, Codec::new(private_key, pk, recv, send)),
             chunk: None,
+            rng,
             ratchet_ts: Instant::now(),
         })
     }
@@ -123,7 +127,7 @@ where
     }
 }
 
-impl<S> Stream for Transport<S>
+impl<S, R> Stream for Transport<S, R>
 where
     S: AsyncRead + Unpin,
 {
@@ -134,9 +138,10 @@ where
     }
 }
 
-impl<S> Sink<Bytes> for Transport<S>
+impl<S, R> Sink<Bytes> for Transport<S, R>
 where
     S: AsyncWrite + Unpin,
+    R: RngCore + CryptoRng,
 {
     type Error = io::Error;
 
@@ -146,8 +151,10 @@ where
 
     fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
         let mut this = self.project();
+        // Check to see if our ratchet deadline has passed.
         if this.ratchet_ts.elapsed() > Duration::from_secs(120) {
-            this.frame.codec_mut().ratchet(OsRng);
+            // If it has, ratchet the send state of the frame's codec and reset the deadline.
+            this.frame.codec_mut().ratchet(&mut this.rng);
             *this.ratchet_ts = Instant::now();
         }
         this.frame.start_send(item)
@@ -162,9 +169,10 @@ where
     }
 }
 
-impl<S> AsyncBufRead for Transport<S>
+impl<S, R> AsyncBufRead for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
+    R: RngCore + CryptoRng,
 {
     fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         loop {
@@ -193,9 +201,10 @@ where
     }
 }
 
-impl<S> AsyncRead for Transport<S>
+impl<S, R> AsyncRead for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
+    R: RngCore + CryptoRng,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -219,7 +228,7 @@ where
     }
 }
 
-impl<S> AsyncWrite for Transport<S>
+impl<S, R> AsyncWrite for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
