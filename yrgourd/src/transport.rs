@@ -80,7 +80,7 @@ where
         let req = Request::from_bytes(request);
 
         // Process the handshake and generate a response.
-        let (recv, send, resp) = handshake
+        let (_, recv, send, resp) = handshake
             .respond(&mut rng, &req)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 

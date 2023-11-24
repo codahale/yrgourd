@@ -173,13 +173,13 @@ impl<'a> Initiator<'a> {
         .as_bytes()
             == &i)
             .then(|| {
-                // Fork the protocol into receiver and sender clones.
-                let mut receiver = self.protocol.clone();
-                receiver.mix(b"sender", b"acceptor");
-                let mut sender = self.protocol.clone();
-                sender.mix(b"sender", b"initiator");
+                // Fork the protocol into recv and send clones.
+                let mut recv = self.protocol.clone();
+                recv.mix(b"sender", b"acceptor");
+                let mut send = self.protocol.clone();
+                send.mix(b"sender", b"initiator");
 
-                (receiver, sender)
+                (recv, send)
             })
     }
 }
@@ -202,13 +202,14 @@ impl<'a, 'b> Acceptor<'a, 'b> {
         Acceptor { protocol: Protocol::new("yrgourd.v1"), private_key, allowed_initiators }
     }
 
-    /// Responds to a handshake given the initiator's [`Request`]. If valid, returns a [`Response`]
-    /// to be sent to the initiator and a `(recv, send)` pair of [`Protocol`]s for transport.
+    /// Responds to a handshake given the initiator's [`Request`]. If valid, returns the initiator's
+    /// public key, a `(recv, send)` pair of [`Protocol`]s for transport, and a [`Response`] to be
+    /// sent to the initiator.
     pub fn respond(
         &mut self,
         mut rng: impl RngCore + CryptoRng,
         handshake: &Request,
-    ) -> Option<(Protocol, Protocol, Response)> {
+    ) -> Option<(PublicKey, Protocol, Protocol, Response)> {
         // Mix the acceptor's static public key into the protocol.
         self.protocol.mix(b"acceptor-static-pub", &self.private_key.public_key.encoded);
 
@@ -277,15 +278,15 @@ impl<'a, 'b> Acceptor<'a, 'b> {
         let mut s = ((self.private_key.d * r) + k).to_bytes();
         self.protocol.encrypt(b"acceptor-proof-scalar", &mut s);
 
-        // Fork the protocol into receiver and sender clones.
-        let mut receiver = self.protocol.clone();
-        receiver.mix(b"sender", b"initiator");
-        let mut sender = self.protocol.clone();
-        sender.mix(b"sender", b"acceptor");
+        // Fork the protocol into recv and send clones.
+        let mut recv = self.protocol.clone();
+        recv.mix(b"sender", b"initiator");
+        let mut send = self.protocol.clone();
+        send.mix(b"sender", b"acceptor");
 
-        // Return a connected state object and a handshake response, containing the encrypted
-        // commitment point and the encrypted proof scalar.
-        Some((receiver, sender, Response { i, s }))
+        // Return the initiator's public key, recv and send protocols, and a response to the
+        // initiator.
+        Some((static_pub, recv, send, Response { i, s }))
     }
 }
 
@@ -306,9 +307,10 @@ mod tests {
         let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
 
         let handshake_req = initiator.initiate(&mut rng);
-        let (mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
+        let (pk, mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
             .respond(&mut rng, &handshake_req)
             .expect("should handle initiator request successfully");
+        assert_eq!(initiator_key.public_key, pk);
 
         let (mut initiator_recv, mut initiator_send) = initiator
             .finalize(&handshake_resp)
@@ -336,9 +338,10 @@ mod tests {
         let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
         let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
         let handshake_req = initiator.initiate(&mut rng);
-        let (mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
+        let (pk, mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
             .respond(&mut rng, &handshake_req)
             .expect("should handle initiator request successfully");
+        assert_eq!(initiator_key.public_key, pk);
 
         let (mut initiator_recv, mut initiator_send) = initiator
             .finalize(&handshake_resp)
