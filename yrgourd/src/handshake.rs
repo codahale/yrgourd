@@ -325,26 +325,15 @@ mod tests {
     }
 
     #[test]
-    fn restricted_initiators() {
+    fn allowed_initiator() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let acceptor_key = PrivateKey::random(&mut rng);
         let initiator_key = PrivateKey::random(&mut rng);
-        let bad_initiator_key = PrivateKey::random(&mut rng);
 
         let mut allowed_initiators = HashSet::new();
         allowed_initiators.insert(initiator_key.public_key);
 
         let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
-        let mut bad_initiator =
-            Initiator::new(&mut rng, &bad_initiator_key, acceptor_key.public_key);
-
-        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
-        let bad_handshake_req = bad_initiator.initiate(&mut rng);
-        assert!(
-            acceptor.respond(&mut rng, &bad_handshake_req).is_none(),
-            "should not allow a handshake with an initiator not in the set"
-        );
-
         let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
         let handshake_req = initiator.initiate(&mut rng);
         let (mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
@@ -362,6 +351,27 @@ mod tests {
         assert_eq!(
             initiator_recv.derive_array::<8>(b"test"),
             acceptor_send.derive_array::<8>(b"test")
+        );
+    }
+
+    #[test]
+    fn restricted_initiator() {
+        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let acceptor_key = PrivateKey::random(&mut rng);
+        let initiator_key = PrivateKey::random(&mut rng);
+        let bad_initiator_key = PrivateKey::random(&mut rng);
+
+        let mut allowed_initiators = HashSet::new();
+        allowed_initiators.insert(initiator_key.public_key);
+
+        let mut bad_initiator =
+            Initiator::new(&mut rng, &bad_initiator_key, acceptor_key.public_key);
+
+        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
+        let bad_handshake_req = bad_initiator.initiate(&mut rng);
+        assert!(
+            acceptor.respond(&mut rng, &bad_handshake_req).is_none(),
+            "should not allow a handshake with an initiator not in the set"
         );
     }
 }
