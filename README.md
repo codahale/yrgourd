@@ -163,11 +163,11 @@ yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ephemeral.pub, receiver.priv))
 On my M2 MacBook Air:
 
 ```text
-Timer precision: 41.66 ns
+Timer precision: 41 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  293 µs        │ 10.52 ms      │ 332.2 µs      │ 397.3 µs      │ 1959    │ 1959
-╰─ transfer   24.55 ms      │ 29.41 ms      │ 25.39 ms      │ 25.48 ms      │ 100     │ 100
-              3.977 GiB/s   │ 3.319 GiB/s   │ 3.845 GiB/s   │ 3.831 GiB/s   │         │
+├─ handshake  317.1 µs      │ 786.7 µs      │ 388.8 µs      │ 415.1 µs      │ 100     │ 100
+╰─ transfer   24.9 ms       │ 26.75 ms      │ 25.56 ms      │ 25.53 ms      │ 100     │ 100
+              4.209 GB/s    │ 3.918 GB/s    │ 4.101 GB/s    │ 4.105 GB/s    │         │
 ```
 
 `handshake` measures the time it takes to establish a yrgourd connection over a Tokio duplex stream;
