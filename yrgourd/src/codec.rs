@@ -41,10 +41,9 @@ impl Codec {
     /// Generate an ephemeral key pair and use it to ratchet the `send` protocol after the next
     /// frame is sent.
     pub fn ratchet(&mut self, rng: impl RngCore + CryptoRng) {
-        if self.ratchet.is_some() {
-            return;
+        if self.ratchet.is_none() {
+            self.ratchet = Some(PrivateKey::random(rng));
         }
-        self.ratchet = Some(PrivateKey::random(rng));
     }
 }
 
