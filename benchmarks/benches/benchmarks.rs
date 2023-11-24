@@ -1,5 +1,7 @@
 #![allow(elided_lifetimes_in_paths)]
 
+use std::time::Duration;
+
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt};
@@ -20,9 +22,16 @@ fn handshake(bencher: divan::Bencher) {
             |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let t = Transport::accept_handshake(acceptor, OsRng, acceptor_key, None)
-                            .await
-                            .unwrap();
+                        let t = Transport::accept_handshake(
+                            acceptor,
+                            OsRng,
+                            acceptor_key,
+                            None,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
 
                         t.shutdown().await.unwrap();
                     });
@@ -33,6 +42,8 @@ fn handshake(bencher: divan::Bencher) {
                             OsRng,
                             initiator_key,
                             acceptor_public_key,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
                         )
                         .await
                         .unwrap();
@@ -64,10 +75,16 @@ fn transfer(bencher: divan::Bencher) {
             |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let mut t =
-                            Transport::accept_handshake(acceptor, OsRng, acceptor_key, None)
-                                .await
-                                .unwrap();
+                        let mut t = Transport::accept_handshake(
+                            acceptor,
+                            OsRng,
+                            acceptor_key,
+                            None,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
                         io::copy(&mut t, &mut io::sink()).await.unwrap();
                         t.shutdown().await.unwrap();
                     });
@@ -78,6 +95,8 @@ fn transfer(bencher: divan::Bencher) {
                             OsRng,
                             initiator_key,
                             acceptor_public_key,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
                         )
                         .await
                         .unwrap();

@@ -41,6 +41,8 @@ where
         mut rng: R,
         private_key: PrivateKey,
         acceptor_public_key: PublicKey,
+        max_ratchet_duration: Duration,
+        max_ratchet_bytes: u64,
     ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake initiator state and initiate a handshake.
         let mut handshake = Initiator::new(&mut rng, &private_key, acceptor_public_key);
@@ -66,8 +68,8 @@ where
                     acceptor_public_key,
                     recv,
                     send,
-                    Duration::from_secs(120),
-                    100 * 1024 * 1024,
+                    max_ratchet_duration,
+                    max_ratchet_bytes,
                 ),
             ),
             chunk: None,
@@ -86,6 +88,8 @@ where
         mut rng: R,
         private_key: PrivateKey,
         allowed_initiators: Option<&HashSet<PublicKey>>,
+        max_ratchet_duration: Duration,
+        max_ratchet_bytes: u64,
     ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake acceptor state.
         let mut handshake = Acceptor::new(&private_key, allowed_initiators);
@@ -112,16 +116,12 @@ where
                     pk,
                     recv,
                     send,
-                    Duration::from_secs(120),
-                    100 * 1024 * 1024,
+                    max_ratchet_duration,
+                    max_ratchet_bytes,
                 ),
             ),
             chunk: None,
         })
-    }
-
-    pub fn ratchet(&mut self) {
-        self.frame.codec_mut().ratchet();
     }
 
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
@@ -283,9 +283,16 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, None)
-                .await
-                .unwrap();
+            let mut t = Transport::accept_handshake(
+                acceptor_conn,
+                OsRng,
+                acceptor_key,
+                None,
+                Duration::from_secs(120),
+                100 * 1024 * 1024,
+            )
+            .await
+            .unwrap();
 
             t.write_all(b"this is a server").await.unwrap();
             t.flush().await.unwrap();
@@ -303,6 +310,8 @@ mod tests {
                 OsRng,
                 initiator_key,
                 acceptor_public_key,
+                Duration::from_secs(120),
+                100 * 1024 * 1024,
             )
             .await
             .unwrap();
@@ -333,9 +342,16 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, None)
-                .await
-                .unwrap();
+            let mut t = Transport::accept_handshake(
+                acceptor_conn,
+                OsRng,
+                acceptor_key,
+                None,
+                Duration::from_secs(120),
+                100 * 1024 * 1024,
+            )
+            .await
+            .unwrap();
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await.unwrap();
@@ -350,6 +366,8 @@ mod tests {
                 OsRng,
                 initiator_key,
                 acceptor_public_key,
+                Duration::from_secs(120),
+                0, // ratchet after every single frame
             )
             .await
             .unwrap();
@@ -358,13 +376,11 @@ mod tests {
             t.write_all(b"this is a client").await.unwrap();
             t.flush().await.unwrap();
 
-            t.ratchet();
-
-            // This frame is sent with the ephemeral public key.
+            // This frame is sent with an ephemeral public key.
             t.write_all(b" and I ratcheted the connection").await.unwrap();
             t.flush().await.unwrap();
 
-            // This frame is sent as data with the re-keyed state.
+            // This frame is sent with an ephemeral public key.
             t.write_all(b" and it was OK").await.unwrap();
             t.flush().await.unwrap();
 

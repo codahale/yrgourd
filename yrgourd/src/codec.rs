@@ -59,12 +59,6 @@ where
             max_ratchet_bytes,
         }
     }
-
-    /// Generate an ephemeral key pair and use it to ratchet the `send` protocol after the next
-    /// frame is sent.
-    pub fn ratchet(&mut self) {
-        self.next_ratchet_at_time = Instant::now();
-    }
 }
 
 impl<R> Encoder<Bytes> for Codec<R>

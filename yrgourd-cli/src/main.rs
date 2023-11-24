@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use clap::Parser;
 use futures::{future, FutureExt, SinkExt, StreamExt};
@@ -57,6 +58,12 @@ struct ProxyOpts {
     )]
     server_public_key: PublicKey,
 
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    max_ratchet_duration: Duration,
+
+    #[clap(long, default_value = "104857600")]
+    max_ratchet_bytes: u64,
+
     #[clap(long, default_value = "127.0.0.1:5050")]
     to: String,
 }
@@ -75,6 +82,12 @@ struct ReverseProxyOpts {
     #[clap(long)]
     allowed_clients: Vec<PublicKey>,
 
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    max_ratchet_duration: Duration,
+
+    #[clap(long, default_value = "104857600")]
+    max_ratchet_bytes: u64,
+
     #[clap(long, default_value = "127.0.0.1:4040")]
     to: String,
 }
@@ -87,10 +100,26 @@ async fn main() -> Result<(), io::Error> {
         Command::Echo(args) => echo(&args.addr).await,
         Command::Connect(args) => connect(&args.addr).await,
         Command::Proxy(args) => {
-            proxy(&args.from, &args.to, args.private_key, args.server_public_key).await
+            proxy(
+                &args.from,
+                &args.to,
+                args.private_key,
+                args.server_public_key,
+                args.max_ratchet_duration,
+                args.max_ratchet_bytes,
+            )
+            .await
         }
         Command::ReverseProxy(args) => {
-            reverse_proxy(&args.from, &args.to, args.private_key, &args.allowed_clients).await
+            reverse_proxy(
+                &args.from,
+                &args.to,
+                args.private_key,
+                &args.allowed_clients,
+                args.max_ratchet_duration,
+                args.max_ratchet_bytes,
+            )
+            .await
         }
     }
 }
@@ -108,13 +137,21 @@ async fn proxy(
     to: impl ToSocketAddrs + Clone,
     client_key: PrivateKey,
     server_public_key: PublicKey,
+    max_ratchet_duration: Duration,
+    max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
-        let mut outbound =
-            Transport::initiate_handshake(outbound, OsRng, client_key.clone(), server_public_key)
-                .await?;
+        let mut outbound = Transport::initiate_handshake(
+            outbound,
+            OsRng,
+            client_key.clone(),
+            server_public_key,
+            max_ratchet_duration,
+            max_ratchet_bytes,
+        )
+        .await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -134,14 +171,22 @@ async fn reverse_proxy(
     to: impl ToSocketAddrs + Clone,
     server_key: PrivateKey,
     allowed_clients: &[PublicKey],
+    max_ratchet_duration: Duration,
+    max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let allowed_clients = allowed_clients.iter().copied().collect::<HashSet<PublicKey>>();
     let allowed_clients = if allowed_clients.is_empty() { None } else { Some(&allowed_clients) };
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound =
-            Transport::accept_handshake(inbound, OsRng, server_key.clone(), allowed_clients)
-                .await?;
+        let mut inbound = Transport::accept_handshake(
+            inbound,
+            OsRng,
+            server_key.clone(),
+            allowed_clients,
+            max_ratchet_duration,
+            max_ratchet_bytes,
+        )
+        .await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
