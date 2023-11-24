@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -64,10 +64,19 @@ impl PartialEq for PublicKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PrivateKey {
     pub(crate) d: Scalar,
     pub public_key: PublicKey,
+}
+
+impl Debug for PrivateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrivateKey")
+            .field("d", &"[redacted]")
+            .field("public_key", &self.public_key)
+            .finish()
+    }
 }
 
 impl From<Scalar> for PrivateKey {
