@@ -22,8 +22,10 @@ pub struct Codec<R> {
     recv: Protocol,
     send: Protocol,
     codec: LengthDelimitedCodec,
-    last_ratchet: Instant,
-    ratchet_period: Duration,
+    next_ratchet_at_time: Instant,
+    next_ratchet_at_bytes: u64,
+    max_ratchet_time: Duration,
+    max_ratchet_bytes: u64,
 }
 
 impl<R> Codec<R>
@@ -38,6 +40,8 @@ where
         receiver: PublicKey,
         recv: Protocol,
         send: Protocol,
+        max_ratchet_time: Duration,
+        max_ratchet_bytes: u64,
     ) -> Codec<R> {
         Codec {
             rng,
@@ -49,15 +53,17 @@ where
                 .little_endian()
                 .length_field_length(3)
                 .new_codec(),
-            last_ratchet: Instant::now(),
-            ratchet_period: Duration::from_secs(120),
+            next_ratchet_at_time: Instant::now() + max_ratchet_time,
+            max_ratchet_time,
+            next_ratchet_at_bytes: max_ratchet_bytes,
+            max_ratchet_bytes,
         }
     }
 
     /// Generate an ephemeral key pair and use it to ratchet the `send` protocol after the next
     /// frame is sent.
     pub fn ratchet(&mut self) {
-        self.last_ratchet = Instant::now() - Duration::from_secs(10_000_000_000);
+        self.next_ratchet_at_time = Instant::now();
     }
 }
 
@@ -68,14 +74,19 @@ where
     type Error = io::Error;
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        // Check to see if our ratchet deadline has passed.
-        let ratchet = if self.last_ratchet.elapsed() > self.ratchet_period {
-            // If so, generate an ephemeral key and reset the deadline.
-            self.last_ratchet = Instant::now();
-            Some(PrivateKey::random(&mut self.rng))
-        } else {
-            None
-        };
+        // Decrement the ratchet bytes counter, stopping at zero.
+        self.next_ratchet_at_bytes = self.next_ratchet_at_bytes.saturating_sub(item.len() as u64);
+
+        // Check to see if our ratchet deadline has passed or our counter has exceeded the maximum.
+        let ratchet =
+            if self.next_ratchet_at_time < Instant::now() || self.next_ratchet_at_bytes == 0 {
+                // If so, generate an ephemeral key and reset the deadline and counter.
+                self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
+                self.next_ratchet_at_bytes = self.max_ratchet_bytes;
+                Some(PrivateKey::random(&mut self.rng))
+            } else {
+                None
+            };
 
         let mut frame = if let Some(ref ephemeral) = ratchet {
             // If there is an ephemeral key, prepend the DATA_WITH_KEY frame typeand the

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
@@ -59,7 +60,15 @@ where
         Ok(Transport {
             frame: Framed::new(
                 stream,
-                Codec::new(rng, private_key, acceptor_public_key, recv, send),
+                Codec::new(
+                    rng,
+                    private_key,
+                    acceptor_public_key,
+                    recv,
+                    send,
+                    Duration::from_secs(120),
+                    100 * 1024 * 1024,
+                ),
             ),
             chunk: None,
         })
@@ -95,7 +104,18 @@ where
         stream.write_all(&resp.to_bytes()).await?;
 
         Ok(Transport {
-            frame: Framed::new(stream, Codec::new(rng, private_key, pk, recv, send)),
+            frame: Framed::new(
+                stream,
+                Codec::new(
+                    rng,
+                    private_key,
+                    pk,
+                    recv,
+                    send,
+                    Duration::from_secs(120),
+                    100 * 1024 * 1024,
+                ),
+            ),
             chunk: None,
         })
     }
