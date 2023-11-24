@@ -48,6 +48,8 @@ impl Request {
 /// A response sent by a handshake acceptor.
 #[derive(Debug, Clone, Copy)]
 pub struct Response {
+    /// The acceptor's encrypted ephemeral public key.
+    pub ephemeral_pub: [u8; 32],
     /// The encrypted commitment point of the acceptor's signature.
     pub i: [u8; 32],
     /// The encrypted proof scalar of the acceptor's signature.
@@ -56,21 +58,23 @@ pub struct Response {
 
 impl Response {
     /// The length of an encoded response in bytes.
-    pub const LEN: usize = 32 + 32;
+    pub const LEN: usize = 32 + 32 + 32;
 
     /// Decodes a serialized response.
     pub fn from_bytes(b: [u8; Self::LEN]) -> Response {
         Response {
-            i: b[..32].try_into().expect("should be 32 bytes"),
-            s: b[32..].try_into().expect("should be 32 bytes"),
+            ephemeral_pub: b[..32].try_into().expect("should be 32 bytes"),
+            i: b[32..64].try_into().expect("should be 32 bytes"),
+            s: b[64..].try_into().expect("should be 32 bytes"),
         }
     }
 
     /// Encodes a serialized response.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         let mut resp = [0u8; Self::LEN];
-        resp[..32].copy_from_slice(&self.i);
-        resp[32..].copy_from_slice(&self.s);
+        resp[..32].copy_from_slice(&self.ephemeral_pub);
+        resp[32..64].copy_from_slice(&self.i);
+        resp[64..].copy_from_slice(&self.s);
         resp
     }
 }
@@ -111,7 +115,7 @@ impl<'a> Initiator<'a> {
         // Calculate the ephemeral shared secret and mix it into the protocol.
         let ephemeral_shared =
             (self.acceptor_public_key.q * self.ephemeral_private_key.d).compress().to_bytes();
-        self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
+        self.protocol.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
 
         // Encrypt the initiator's static public key.
         let mut static_pub = self.private_key.public_key.encoded;
@@ -149,6 +153,15 @@ impl<'a> Initiator<'a> {
     /// Finalizes a handshake given the acceptor's [`Response`]. If valid, returns a `(recv, send)`
     /// pair of [`Protocol`]s for transport.
     pub fn finalize(&mut self, response: &Response) -> Option<(Protocol, Protocol)> {
+        // Decrypt the acceptor's ephemeral public key.
+        let mut ephemeral_pub = response.ephemeral_pub;
+        self.protocol.decrypt(b"acceptor-ephemeral-pub", &mut ephemeral_pub);
+        let ephemeral_pub = PublicKey::try_from(ephemeral_pub.as_ref()).ok()?;
+
+        // Calculate the ephemeral shared secret and mix it into the protocol.
+        let ephemeral_shared = (self.private_key.d * ephemeral_pub.q).compress().to_bytes();
+        self.protocol.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
+
         // Decrypt the initiator's encoded commitment point of the acceptor's signature.
         let mut i = response.i;
         self.protocol.decrypt(b"acceptor-commitment-point", &mut i);
@@ -220,20 +233,20 @@ impl<'a, 'b> Acceptor<'a, 'b> {
 
         // Calculate the ephemeral shared secret and mix it into the protocol.
         let ephemeral_shared = (ephemeral_pub * self.private_key.d).compress().to_bytes();
-        self.protocol.mix(b"ephemeral-shared", &ephemeral_shared);
+        self.protocol.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
 
         // Decrypt and parse the initiator's static public key.
-        let mut static_pub = handshake.static_pub;
-        self.protocol.decrypt(b"initiator-static-pub", &mut static_pub);
-        let static_pub = PublicKey::try_from(static_pub.as_ref()).ok()?;
+        let mut initiator_pub = handshake.static_pub;
+        self.protocol.decrypt(b"initiator-static-pub", &mut initiator_pub);
+        let initiator_pub = PublicKey::try_from(initiator_pub.as_ref()).ok()?;
 
         // If initiators are restricted, check that the initiator is in the allowed set.
-        if self.allowed_initiators.map(|s| !s.contains(&static_pub)).unwrap_or(false) {
+        if self.allowed_initiators.map(|s| !s.contains(&initiator_pub)).unwrap_or(false) {
             return None;
         }
 
         // Calculate the static shared secret and mix it into the protocol.
-        let static_shared = (static_pub.q * self.private_key.d).compress().to_bytes();
+        let static_shared = (initiator_pub.q * self.private_key.d).compress().to_bytes();
         self.protocol.mix(b"static-shared", &static_shared);
 
         // Decrypt the initiator's encoded commitment point of the initiator's signature.
@@ -251,13 +264,24 @@ impl<'a, 'b> Acceptor<'a, 'b> {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
         // Verify the initiator's signature and early exit if invalid.
-        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-static_pub.q, &s)
+        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-initiator_pub.q, &s)
             .compress()
             .as_bytes()
             != &i
         {
             return None;
         }
+
+        // Generate an ephemeral key pair;
+        let ephemeral = PrivateKey::random(&mut rng);
+
+        // Encrypt the acceptor's ephemeral public key.
+        let mut ephemeral_pub = ephemeral.public_key.encoded;
+        self.protocol.encrypt(b"acceptor-ephemeral-pub", &mut ephemeral_pub);
+
+        // Calculate the ephemeral shared secret and mix it into the protocol.
+        let ephemeral_shared = (initiator_pub.q * ephemeral.d).compress().to_bytes();
+        self.protocol.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
 
         // Generate a hedged commitment scalar and commitment point.
         let k = self.protocol.hedge(&mut rng, &[self.private_key.d.as_bytes()], 10_000, |clone| {
@@ -286,7 +310,7 @@ impl<'a, 'b> Acceptor<'a, 'b> {
 
         // Return the initiator's public key, recv and send protocols, and a response to the
         // initiator.
-        Some((static_pub, recv, send, Response { i, s }))
+        Some((initiator_pub, recv, send, Response { ephemeral_pub, i, s }))
     }
 }
 
