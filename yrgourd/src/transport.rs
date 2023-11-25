@@ -36,7 +36,7 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn initiate_handshake(
+    pub(crate) async fn initiate_handshake(
         mut stream: S,
         mut rng: R,
         private_key: PrivateKey,
@@ -83,7 +83,7 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn accept_handshake(
+    pub(crate) async fn accept_handshake(
         mut stream: S,
         mut rng: R,
         private_key: PrivateKey,

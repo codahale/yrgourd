@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::Duration;
 
 use clap::Parser;
@@ -7,7 +6,7 @@ use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::{PrivateKey, PublicKey, Transport};
+use yrgourd::{PrivateKey, PublicKey, Yrgourd};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -59,7 +58,7 @@ struct ProxyOpts {
     server_public_key: PublicKey,
 
     #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
 
     #[clap(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
@@ -83,7 +82,7 @@ struct ReverseProxyOpts {
     allowed_clients: Vec<PublicKey>,
 
     #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
 
     #[clap(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
@@ -105,7 +104,7 @@ async fn main() -> Result<(), io::Error> {
                 &args.to,
                 args.private_key,
                 args.server_public_key,
-                args.max_ratchet_duration,
+                args.max_ratchet_time,
                 args.max_ratchet_bytes,
             )
             .await
@@ -116,7 +115,7 @@ async fn main() -> Result<(), io::Error> {
                 &args.to,
                 args.private_key,
                 &args.allowed_clients,
-                args.max_ratchet_duration,
+                args.max_ratchet_time,
                 args.max_ratchet_bytes,
             )
             .await
@@ -137,21 +136,16 @@ async fn proxy(
     to: impl ToSocketAddrs + Clone,
     client_key: PrivateKey,
     server_public_key: PublicKey,
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
+    let yrgourd = Yrgourd::new(client_key, OsRng)
+        .max_ratchet_time(max_ratchet_time)
+        .max_ratchet_bytes(max_ratchet_bytes);
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
-        let mut outbound = Transport::initiate_handshake(
-            outbound,
-            OsRng,
-            client_key.clone(),
-            server_public_key,
-            max_ratchet_duration,
-            max_ratchet_bytes,
-        )
-        .await?;
+        let mut outbound = yrgourd.initiate_handshake(outbound, server_public_key).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -171,22 +165,16 @@ async fn reverse_proxy(
     to: impl ToSocketAddrs + Clone,
     server_key: PrivateKey,
     allowed_clients: &[PublicKey],
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let allowed_clients = allowed_clients.iter().copied().collect::<HashSet<PublicKey>>();
-    let allowed_clients = if allowed_clients.is_empty() { None } else { Some(&allowed_clients) };
+    let yrgourd = Yrgourd::new(server_key, OsRng)
+        .max_ratchet_time(max_ratchet_time)
+        .max_ratchet_bytes(max_ratchet_bytes)
+        .allow_initiators(allowed_clients);
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = Transport::accept_handshake(
-            inbound,
-            OsRng,
-            server_key.clone(),
-            allowed_clients,
-            max_ratchet_duration,
-            max_ratchet_bytes,
-        )
-        .await?;
+        let mut inbound = yrgourd.accept_handshake(inbound).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
