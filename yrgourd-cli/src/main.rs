@@ -7,7 +7,7 @@ use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::{PrivateKey, PublicKey, Transport};
+use yrgourd::{AcceptOpts, AllowPolicy, InitiateOpts, PrivateKey, PublicKey, Transport};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -137,7 +137,7 @@ async fn proxy(
     to: impl ToSocketAddrs + Clone,
     client_key: PrivateKey,
     server_public_key: PublicKey,
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(from).await?;
@@ -148,8 +148,7 @@ async fn proxy(
             OsRng,
             client_key.clone(),
             server_public_key,
-            max_ratchet_duration,
-            max_ratchet_bytes,
+            InitiateOpts { max_ratchet_time, max_ratchet_bytes },
         )
         .await?;
         tokio::spawn(async move {
@@ -171,22 +170,23 @@ async fn reverse_proxy(
     to: impl ToSocketAddrs + Clone,
     server_key: PrivateKey,
     allowed_clients: &[PublicKey],
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let allowed_clients = allowed_clients.iter().copied().collect::<HashSet<PublicKey>>();
-    let allowed_clients = if allowed_clients.is_empty() { None } else { Some(&allowed_clients) };
+    let opts = AcceptOpts {
+        allow: if allowed_clients.is_empty() {
+            AllowPolicy::AllInitiators
+        } else {
+            AllowPolicy::AllowedInitiators(&allowed_clients)
+        },
+        max_ratchet_time,
+        max_ratchet_bytes,
+    };
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = Transport::accept_handshake(
-            inbound,
-            OsRng,
-            server_key.clone(),
-            allowed_clients,
-            max_ratchet_duration,
-            max_ratchet_bytes,
-        )
-        .await?;
+        let mut inbound =
+            Transport::accept_handshake(inbound, OsRng, server_key.clone(), opts).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)

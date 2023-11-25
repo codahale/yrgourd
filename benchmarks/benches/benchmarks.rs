@@ -1,7 +1,5 @@
 #![allow(elided_lifetimes_in_paths)]
 
-use std::time::Duration;
-
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt};
@@ -26,9 +24,7 @@ fn handshake(bencher: divan::Bencher) {
                             acceptor,
                             OsRng,
                             acceptor_key,
-                            None,
-                            Duration::from_secs(120),
-                            100 * 1024 * 1024,
+                            Default::default(),
                         )
                         .await
                         .unwrap();
@@ -42,8 +38,7 @@ fn handshake(bencher: divan::Bencher) {
                             OsRng,
                             initiator_key,
                             acceptor_public_key,
-                            Duration::from_secs(120),
-                            100 * 1024 * 1024,
+                            Default::default(),
                         )
                         .await
                         .unwrap();
@@ -79,9 +74,7 @@ fn transfer(bencher: divan::Bencher) {
                             acceptor,
                             OsRng,
                             acceptor_key,
-                            None,
-                            Duration::from_secs(120),
-                            100 * 1024 * 1024,
+                            Default::default(),
                         )
                         .await
                         .unwrap();
@@ -95,8 +88,7 @@ fn transfer(bencher: divan::Bencher) {
                             OsRng,
                             initiator_key,
                             acceptor_public_key,
-                            Duration::from_secs(120),
-                            100 * 1024 * 1024,
+                            Default::default(),
                         )
                         .await
                         .unwrap();

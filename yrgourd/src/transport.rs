@@ -15,6 +15,50 @@ use crate::codec::Codec;
 use crate::handshake::{Acceptor, Initiator, Request, Response};
 use crate::keys::{PrivateKey, PublicKey};
 
+/// Options for initiating a handshake.
+#[derive(Debug, Clone, Copy)]
+pub struct InitiateOpts {
+    /// The maximum amount of time between protocol ratchets.
+    pub max_ratchet_time: Duration,
+    /// The maximum amount of data between protocol ratchets.
+    pub max_ratchet_bytes: u64,
+}
+
+impl Default for InitiateOpts {
+    fn default() -> Self {
+        Self { max_ratchet_time: Duration::from_secs(120), max_ratchet_bytes: 100 * 1024 * 1024 }
+    }
+}
+
+/// A policy for determining whether or not to accept a handshake from an initiator.
+#[derive(Debug, Clone, Copy)]
+pub enum AllowPolicy<'a> {
+    /// Accept handshakes from all initiators.
+    AllInitiators,
+    /// Accept handshakes only from initiators in the given set.
+    AllowedInitiators(&'a HashSet<PublicKey>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AcceptOpts<'a> {
+    /// The policy for allowing initiators.
+    pub allow: AllowPolicy<'a>,
+    /// The maximum amount of time between protocol ratchets.
+    pub max_ratchet_time: Duration,
+    /// The maximum amount of data between protocol ratchets.
+    pub max_ratchet_bytes: u64,
+}
+
+impl<'a> Default for AcceptOpts<'a> {
+    fn default() -> Self {
+        Self {
+            max_ratchet_time: Duration::from_secs(120),
+            max_ratchet_bytes: 100 * 1024 * 1024,
+            allow: AllowPolicy::AllInitiators,
+        }
+    }
+}
+
 pin_project! {
     /// A yrgourd connection.
     pub struct Transport<S, R> {
@@ -40,12 +84,11 @@ where
         mut stream: S,
         mut rng: R,
         private_key: PrivateKey,
-        acceptor_public_key: PublicKey,
-        max_ratchet_duration: Duration,
-        max_ratchet_bytes: u64,
+        acceptor: PublicKey,
+        opts: InitiateOpts,
     ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake initiator state and initiate a handshake.
-        let mut handshake = Initiator::new(&mut rng, &private_key, acceptor_public_key);
+        let mut handshake = Initiator::new(&mut rng, &private_key, acceptor);
         let req = handshake.initiate(&mut rng);
         stream.write_all(&req.to_bytes()).await?;
 
@@ -65,11 +108,11 @@ where
                 Codec::new(
                     rng,
                     private_key,
-                    acceptor_public_key,
+                    acceptor,
                     recv,
                     send,
-                    max_ratchet_duration,
-                    max_ratchet_bytes,
+                    opts.max_ratchet_time,
+                    opts.max_ratchet_bytes,
                 ),
             ),
             chunk: None,
@@ -83,16 +126,21 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn accept_handshake(
+    #[allow(clippy::needless_lifetimes)]
+    pub async fn accept_handshake<'a>(
         mut stream: S,
         mut rng: R,
         private_key: PrivateKey,
-        allowed_initiators: Option<&HashSet<PublicKey>>,
-        max_ratchet_duration: Duration,
-        max_ratchet_bytes: u64,
+        opts: AcceptOpts<'a>,
     ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake acceptor state.
-        let mut handshake = Acceptor::new(&private_key, allowed_initiators);
+        let mut handshake = Acceptor::new(
+            &private_key,
+            match opts.allow {
+                AllowPolicy::AllInitiators => None,
+                AllowPolicy::AllowedInitiators(keys) => Some(keys),
+            },
+        );
 
         // Read and parse the handshake request from the initiator.
         let mut request = [0u8; Request::LEN];
@@ -116,8 +164,8 @@ where
                     pk,
                     recv,
                     send,
-                    max_ratchet_duration,
-                    max_ratchet_bytes,
+                    opts.max_ratchet_time,
+                    opts.max_ratchet_bytes,
                 ),
             ),
             chunk: None,
@@ -283,16 +331,10 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(
-                acceptor_conn,
-                OsRng,
-                acceptor_key,
-                None,
-                Duration::from_secs(120),
-                100 * 1024 * 1024,
-            )
-            .await
-            .unwrap();
+            let mut t =
+                Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, Default::default())
+                    .await
+                    .unwrap();
 
             t.write_all(b"this is a server").await.unwrap();
             t.flush().await.unwrap();
@@ -310,8 +352,7 @@ mod tests {
                 OsRng,
                 initiator_key,
                 acceptor_public_key,
-                Duration::from_secs(120),
-                100 * 1024 * 1024,
+                Default::default(),
             )
             .await
             .unwrap();
@@ -342,16 +383,10 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = Transport::accept_handshake(
-                acceptor_conn,
-                OsRng,
-                acceptor_key,
-                None,
-                Duration::from_secs(120),
-                100 * 1024 * 1024,
-            )
-            .await
-            .unwrap();
+            let mut t =
+                Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, Default::default())
+                    .await
+                    .unwrap();
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await.unwrap();
@@ -366,8 +401,7 @@ mod tests {
                 OsRng,
                 initiator_key,
                 acceptor_public_key,
-                Duration::from_secs(120),
-                0, // ratchet after every single frame
+                InitiateOpts { max_ratchet_bytes: 0, ..Default::default() }, // ratchet after every single frame
             )
             .await
             .unwrap();
