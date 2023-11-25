@@ -177,24 +177,18 @@ impl<'a> InitiatorState<'a> {
         self.protocol.decrypt(b"acceptor-proof-scalar", &mut s);
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
-        // Verify the initiator's signature and return a connected state object if valid.
-        (RistrettoPoint::vartime_double_scalar_mul_basepoint(
-            &r_p,
-            &-self.acceptor_public_key.q,
-            &s,
-        )
-        .compress()
-        .as_bytes()
-            == &i)
-            .then(|| {
-                // Fork the protocol into recv and send clones.
-                let mut recv = self.protocol.clone();
-                recv.mix(b"sender", b"acceptor");
-                let mut send = self.protocol.clone();
-                send.mix(b"sender", b"initiator");
+        // Verify the initiator's signature and early exit if invalid.
+        if !verify(&i, &r_p, &self.acceptor_public_key.q, &s) {
+            return None;
+        }
 
-                (recv, send)
-            })
+        // Fork the protocol into recv and send clones.
+        let mut recv = self.protocol.clone();
+        recv.mix(b"sender", b"acceptor");
+        let mut send = self.protocol.clone();
+        send.mix(b"sender", b"initiator");
+
+        Some((recv, send))
     }
 }
 
@@ -265,11 +259,7 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s))?;
 
         // Verify the initiator's signature and early exit if invalid.
-        if RistrettoPoint::vartime_double_scalar_mul_basepoint(&r_p, &-initiator_pub.q, &s)
-            .compress()
-            .as_bytes()
-            != &i
-        {
+        if !verify(&i, &r_p, &initiator_pub.q, &s) {
             return None;
         }
 
@@ -313,6 +303,13 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
         // initiator.
         Some((initiator_pub, recv, send, Response { ephemeral_pub, i, s }))
     }
+}
+
+/// Given an encoded commitment point `I`, a counterfactual challenge scalar `r′`, a public key `Q`,
+/// and a proof scalar `s`, return true iff `I == [s]G - [r']Q`. Compares the encoded forms of `I`
+/// and `I′` for performance and security.
+fn verify(i: &[u8], r_p: &Scalar, q: &RistrettoPoint, s: &Scalar) -> bool {
+    RistrettoPoint::vartime_double_scalar_mul_basepoint(r_p, &-q, s).compress().as_bytes() == i
 }
 
 #[cfg(test)]
