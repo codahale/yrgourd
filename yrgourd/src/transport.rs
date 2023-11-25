@@ -1,66 +1,18 @@
-use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
 use rand_core::{CryptoRng, RngCore};
-use tokio::io::{self, AsyncBufRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncBufRead, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
-use crate::handshake::{Acceptor, Initiator, Request, Response};
-use crate::keys::{PrivateKey, PublicKey};
-
-/// Options for initiating a handshake.
-#[derive(Debug, Clone, Copy)]
-pub struct InitiateOpts {
-    /// The maximum amount of time between protocol ratchets.
-    pub max_ratchet_time: Duration,
-    /// The maximum amount of data between protocol ratchets.
-    pub max_ratchet_bytes: u64,
-}
-
-impl Default for InitiateOpts {
-    fn default() -> Self {
-        Self { max_ratchet_time: Duration::from_secs(120), max_ratchet_bytes: 100 * 1024 * 1024 }
-    }
-}
-
-/// A policy for determining whether or not to accept a handshake from an initiator.
-#[derive(Debug, Clone, Copy)]
-pub enum AllowPolicy<'a> {
-    /// Accept handshakes from all initiators.
-    AllInitiators,
-    /// Accept handshakes only from initiators in the given set.
-    AllowedInitiators(&'a HashSet<PublicKey>),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct AcceptOpts<'a> {
-    /// The policy for allowing initiators.
-    pub allow: AllowPolicy<'a>,
-    /// The maximum amount of time between protocol ratchets.
-    pub max_ratchet_time: Duration,
-    /// The maximum amount of data between protocol ratchets.
-    pub max_ratchet_bytes: u64,
-}
-
-impl<'a> Default for AcceptOpts<'a> {
-    fn default() -> Self {
-        Self {
-            max_ratchet_time: Duration::from_secs(120),
-            max_ratchet_bytes: 100 * 1024 * 1024,
-            allow: AllowPolicy::AllInitiators,
-        }
-    }
-}
 
 pin_project! {
-    /// A yrgourd connection.
+    /// A Yrgourd connection. Mutually authenticated and confidential.
     pub struct Transport<S, R> {
         #[pin]
         frame: Framed<S, Codec<R>>,
@@ -73,112 +25,17 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
     R: RngCore + CryptoRng,
 {
-    /// Initiate a handshake via the given stream. Returns a [`Transport`] over the given stream if
-    /// the handshake is successful.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
-    /// reads or writes during the handshake.
-    pub async fn initiate_handshake(
-        mut stream: S,
-        mut rng: R,
-        private_key: PrivateKey,
-        acceptor: PublicKey,
-        opts: InitiateOpts,
-    ) -> io::Result<Transport<S, R>> {
-        // Initialize a handshake initiator state and initiate a handshake.
-        let mut handshake = Initiator::new(&mut rng, &private_key, acceptor);
-        let req = handshake.initiate(&mut rng);
-        stream.write_all(&req.to_bytes()).await?;
-
-        // Read and parse the handshake response from the acceptor.
-        let mut resp = [0u8; Response::LEN];
-        stream.read_exact(&mut resp).await?;
-        let resp = Response::from_bytes(resp);
-
-        // Validate the acceptor response.
-        let Some((recv, send)) = handshake.finalize(&resp) else {
-            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
-        };
-
-        Ok(Transport {
-            frame: Framed::new(
-                stream,
-                Codec::new(
-                    rng,
-                    private_key,
-                    acceptor,
-                    recv,
-                    send,
-                    opts.max_ratchet_time,
-                    opts.max_ratchet_bytes,
-                ),
-            ),
-            chunk: None,
-        })
-    }
-
-    /// Accept a handshake request over the given stream. Returns a [`Transport`] over the given
-    /// stream if the handshake is successful.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
-    /// reads or writes during the handshake.
-    #[allow(clippy::needless_lifetimes)]
-    pub async fn accept_handshake<'a>(
-        mut stream: S,
-        mut rng: R,
-        private_key: PrivateKey,
-        opts: AcceptOpts<'a>,
-    ) -> io::Result<Transport<S, R>> {
-        // Initialize a handshake acceptor state.
-        let mut handshake = Acceptor::new(
-            &private_key,
-            match opts.allow {
-                AllowPolicy::AllInitiators => None,
-                AllowPolicy::AllowedInitiators(keys) => Some(keys),
-            },
-        );
-
-        // Read and parse the handshake request from the initiator.
-        let mut request = [0u8; Request::LEN];
-        stream.read_exact(&mut request).await?;
-        let req = Request::from_bytes(request);
-
-        // Process the handshake and generate a response.
-        let (pk, recv, send, resp) = handshake
-            .respond(&mut rng, &req)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
-
-        // Send the handshake response.
-        stream.write_all(&resp.to_bytes()).await?;
-
-        Ok(Transport {
-            frame: Framed::new(
-                stream,
-                Codec::new(
-                    rng,
-                    private_key,
-                    pk,
-                    recv,
-                    send,
-                    opts.max_ratchet_time,
-                    opts.max_ratchet_bytes,
-                ),
-            ),
-            chunk: None,
-        })
-    }
-
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
     ///
     /// # Errors
     ///
-    /// Returns an error if the stream returns an error shutting down.
+    /// Returns an error if the underlying stream returns an error shutting down.
     pub async fn shutdown(self) -> io::Result<()> {
         self.frame.into_inner().shutdown().await
+    }
+
+    pub(crate) const fn new(frame: Framed<S, Codec<R>>) -> Transport<S, R> {
+        Transport { frame, chunk: None }
     }
 
     fn has_chunk(&self) -> bool {
@@ -311,119 +168,5 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         self.project().frame.poll_close(cx)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rand_chacha::ChaChaRng;
-    use rand_core::{OsRng, SeedableRng};
-
-    use super::*;
-
-    #[tokio::test]
-    async fn round_trip() -> io::Result<()> {
-        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let initiator_key = PrivateKey::random(&mut rng);
-        let acceptor_key = PrivateKey::random(&mut rng);
-        let acceptor_public_key = acceptor_key.public_key;
-
-        let (initiator_conn, acceptor_conn) = io::duplex(64);
-
-        let acceptor = tokio::spawn(async move {
-            let mut t =
-                Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, Default::default())
-                    .await
-                    .unwrap();
-
-            t.write_all(b"this is a server").await.unwrap();
-            t.flush().await.unwrap();
-
-            let mut buf = Vec::new();
-            t.read_to_end(&mut buf).await.unwrap();
-            assert_eq!(&buf, b"this is a client");
-
-            t.shutdown().await.unwrap();
-        });
-
-        let initiator = tokio::spawn(async move {
-            let mut t = Transport::initiate_handshake(
-                initiator_conn,
-                OsRng,
-                initiator_key,
-                acceptor_public_key,
-                Default::default(),
-            )
-            .await
-            .unwrap();
-
-            t.write_all(b"this is a client").await.unwrap();
-            t.flush().await.unwrap();
-
-            let mut buf = [0u8; 16];
-            t.read_exact(&mut buf).await.unwrap();
-            assert_eq!(&buf, b"this is a server");
-
-            t.shutdown().await.unwrap();
-        });
-
-        acceptor.await.unwrap();
-        initiator.await.unwrap();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn ratcheting() -> io::Result<()> {
-        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let initiator_key = PrivateKey::random(&mut rng);
-        let acceptor_key = PrivateKey::random(&mut rng);
-        let acceptor_public_key = acceptor_key.public_key;
-
-        let (initiator_conn, acceptor_conn) = io::duplex(64);
-
-        let acceptor = tokio::spawn(async move {
-            let mut t =
-                Transport::accept_handshake(acceptor_conn, OsRng, acceptor_key, Default::default())
-                    .await
-                    .unwrap();
-
-            let mut buf = String::new();
-            t.read_to_string(&mut buf).await.unwrap();
-            assert_eq!(&buf, "this is a client and I ratcheted the connection and it was OK");
-
-            t.shutdown().await.unwrap();
-        });
-
-        let initiator = tokio::spawn(async move {
-            let mut t = Transport::initiate_handshake(
-                initiator_conn,
-                OsRng,
-                initiator_key,
-                acceptor_public_key,
-                InitiateOpts { max_ratchet_bytes: 0, ..Default::default() }, // ratchet after every single frame
-            )
-            .await
-            .unwrap();
-
-            // This frame is sent as data.
-            t.write_all(b"this is a client").await.unwrap();
-            t.flush().await.unwrap();
-
-            // This frame is sent with an ephemeral public key.
-            t.write_all(b" and I ratcheted the connection").await.unwrap();
-            t.flush().await.unwrap();
-
-            // This frame is sent with an ephemeral public key.
-            t.write_all(b" and it was OK").await.unwrap();
-            t.flush().await.unwrap();
-
-            t.shutdown().await.unwrap();
-        });
-
-        acceptor.await.unwrap();
-        initiator.await.unwrap();
-
-        Ok(())
     }
 }

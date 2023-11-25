@@ -1,10 +1,9 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use lockstitch::{Protocol, TAG_LEN};
 use rand_core::{CryptoRng, RngCore};
 use tokio::io;
-use tokio::time::Instant;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::{PrivateKey, PublicKey};

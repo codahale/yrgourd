@@ -79,23 +79,24 @@ impl Response {
     }
 }
 
-/// A handshake initiator.
+/// A handshake initiator's state.
 #[derive(Debug)]
-pub struct Initiator<'a> {
+pub struct InitiatorState<'a> {
     protocol: Protocol,
     private_key: &'a PrivateKey,
     acceptor_public_key: PublicKey,
     ephemeral_private_key: PrivateKey,
 }
 
-impl<'a> Initiator<'a> {
-    /// Creates a new [`Initiator`] with the given private key and the given acceptor's public key.
+impl<'a> InitiatorState<'a> {
+    /// Creates a new [`InitiatorState`] with the given private key and the given acceptor's public
+    /// key.
     pub fn new(
         rng: impl RngCore + CryptoRng,
         private_key: &'a PrivateKey,
         acceptor_public_key: PublicKey,
-    ) -> Initiator<'a> {
-        Initiator {
+    ) -> InitiatorState<'a> {
+        InitiatorState {
             protocol: Protocol::new("yrgourd.v1"),
             private_key,
             acceptor_public_key,
@@ -197,22 +198,22 @@ impl<'a> Initiator<'a> {
     }
 }
 
-/// A handshake acceptor.
+/// A handshake acceptor's state.
 #[derive(Debug, Clone)]
-pub struct Acceptor<'a, 'b> {
+pub struct AcceptorState<'a, 'b> {
     protocol: Protocol,
     private_key: &'a PrivateKey,
     allowed_initiators: Option<&'b HashSet<PublicKey>>,
 }
 
-impl<'a, 'b> Acceptor<'a, 'b> {
+impl<'a, 'b> AcceptorState<'a, 'b> {
     /// Create a new [`Acceptor`] with the given private key with initiators optionally restricted
     /// to the given set of public keys.
     pub fn new(
         private_key: &'a PrivateKey,
         allowed_initiators: Option<&'b HashSet<PublicKey>>,
-    ) -> Acceptor<'a, 'b> {
-        Acceptor { protocol: Protocol::new("yrgourd.v1"), private_key, allowed_initiators }
+    ) -> AcceptorState<'a, 'b> {
+        AcceptorState { protocol: Protocol::new("yrgourd.v1"), private_key, allowed_initiators }
     }
 
     /// Responds to a handshake given the initiator's [`Request`]. If valid, returns the initiator's
@@ -327,8 +328,8 @@ mod tests {
         let acceptor_key = PrivateKey::random(&mut rng);
         let initiator_key = PrivateKey::random(&mut rng);
 
-        let mut acceptor = Acceptor::new(&acceptor_key, None);
-        let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
+        let mut acceptor = AcceptorState::new(&acceptor_key, None);
+        let mut initiator = InitiatorState::new(&mut rng, &initiator_key, acceptor_key.public_key);
 
         let handshake_req = initiator.initiate(&mut rng);
         let (pk, mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
@@ -359,8 +360,8 @@ mod tests {
         let mut allowed_initiators = HashSet::new();
         allowed_initiators.insert(initiator_key.public_key);
 
-        let mut initiator = Initiator::new(&mut rng, &initiator_key, acceptor_key.public_key);
-        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
+        let mut initiator = InitiatorState::new(&mut rng, &initiator_key, acceptor_key.public_key);
+        let mut acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
         let handshake_req = initiator.initiate(&mut rng);
         let (pk, mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
             .respond(&mut rng, &handshake_req)
@@ -392,9 +393,9 @@ mod tests {
         allowed_initiators.insert(initiator_key.public_key);
 
         let mut bad_initiator =
-            Initiator::new(&mut rng, &bad_initiator_key, acceptor_key.public_key);
+            InitiatorState::new(&mut rng, &bad_initiator_key, acceptor_key.public_key);
 
-        let mut acceptor = Acceptor::new(&acceptor_key, Some(&allowed_initiators));
+        let mut acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
         let bad_handshake_req = bad_initiator.initiate(&mut rng);
         assert!(
             acceptor.respond(&mut rng, &bad_handshake_req).is_none(),

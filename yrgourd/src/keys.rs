@@ -7,6 +7,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
+/// The Ristretto255 public key of a Yrgourd party.
 #[derive(Debug, Clone, Copy, Eq)]
 pub struct PublicKey {
     pub(crate) q: RistrettoPoint,
@@ -58,10 +59,13 @@ impl std::hash::Hash for PublicKey {
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
+        // Compare public keys in constant time to avoid timing attacks on initiator restriction
+        // policies.
         lockstitch::ct_eq(&self.encoded, &other.encoded)
     }
 }
 
+/// The Ristretto255 private key of a Yrgourd party.
 #[derive(Clone)]
 pub struct PrivateKey {
     pub(crate) d: Scalar,
@@ -79,12 +83,12 @@ impl Debug for PrivateKey {
 
 impl From<Scalar> for PrivateKey {
     fn from(d: Scalar) -> Self {
-        let q = RistrettoPoint::mul_base(&d);
-        Self { d, public_key: q.into() }
+        Self { d, public_key: RistrettoPoint::mul_base(&d).into() }
     }
 }
 
 impl PrivateKey {
+    /// Generate a random private key using the given RNG.
     pub fn random(mut rng: impl RngCore + CryptoRng) -> PrivateKey {
         Scalar::random(&mut rng).into()
     }

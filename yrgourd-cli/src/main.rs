@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::Duration;
 
 use clap::Parser;
@@ -7,7 +6,7 @@ use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::{AcceptOpts, AllowPolicy, InitiateOpts, PrivateKey, PublicKey, Transport};
+use yrgourd::{Acceptor, AllowPolicy, Initiator, PrivateKey, PublicKey};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -140,17 +139,13 @@ async fn proxy(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
+    let mut initiator = Initiator::new(OsRng, client_key);
+    initiator.max_ratchet_time = max_ratchet_time;
+    initiator.max_ratchet_bytes = max_ratchet_bytes;
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
-        let mut outbound = Transport::initiate_handshake(
-            outbound,
-            OsRng,
-            client_key.clone(),
-            server_public_key,
-            InitiateOpts { max_ratchet_time, max_ratchet_bytes },
-        )
-        .await?;
+        let mut outbound = initiator.initiate_handshake(outbound, server_public_key).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -173,20 +168,18 @@ async fn reverse_proxy(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let allowed_clients = allowed_clients.iter().copied().collect::<HashSet<PublicKey>>();
-    let opts = AcceptOpts {
-        allow: if allowed_clients.is_empty() {
-            AllowPolicy::AllInitiators
-        } else {
-            AllowPolicy::AllowedInitiators(&allowed_clients)
-        },
-        max_ratchet_time,
-        max_ratchet_bytes,
-    };
+    let mut acceptor = Acceptor::new(OsRng, server_key);
+    acceptor.max_ratchet_time = max_ratchet_time;
+    acceptor.max_ratchet_bytes = max_ratchet_bytes;
+
+    if !allowed_clients.is_empty() {
+        acceptor.allow_policy =
+            AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
+    }
+
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound =
-            Transport::accept_handshake(inbound, OsRng, server_key.clone(), opts).await?;
+        let mut inbound = acceptor.accept_handshake(inbound).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
