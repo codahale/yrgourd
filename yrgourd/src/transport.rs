@@ -101,7 +101,7 @@ where
 
     fn consume(self: Pin<&mut Self>, amt: usize) {
         if amt > 0 {
-            self.project().chunk.as_mut().expect("No chunk present").advance(amt);
+            self.project().chunk.as_mut().expect("should have a chunk").advance(amt);
         }
     }
 }
