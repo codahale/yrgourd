@@ -1,9 +1,11 @@
 #![allow(elided_lifetimes_in_paths)]
 
+use std::time::Duration;
+
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt};
-use yrgourd::{PrivateKey, Yrgourd};
+use yrgourd::{PrivateKey, Transport};
 
 #[divan::bench]
 fn handshake(bencher: divan::Bencher) {
@@ -13,24 +15,39 @@ fn handshake(bencher: divan::Bencher) {
             let acceptor_key = PrivateKey::random(OsRng);
             let acceptor_public_key = acceptor_key.public_key;
             let initiator_key = PrivateKey::random(OsRng);
-            let yg_acceptor = Yrgourd::new(acceptor_key, OsRng);
-            let yg_initiator = Yrgourd::new(initiator_key, OsRng);
             let (initiator, acceptor) = io::duplex(1024 * 1024);
-            (rt, yg_acceptor, yg_initiator, acceptor_public_key, initiator, acceptor)
+            (rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)
         })
         .bench_values(
-            |(rt, yg_acceptor, yg_initiator, acceptor_public_key, initiator, acceptor)| {
+            |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let t = yg_acceptor.accept_handshake(acceptor).await.unwrap();
+                        let t = Transport::accept_handshake(
+                            acceptor,
+                            OsRng,
+                            acceptor_key,
+                            None,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
+
                         t.shutdown().await.unwrap();
                     });
 
                     let initiator = tokio::spawn(async move {
-                        let t = yg_initiator
-                            .initiate_handshake(initiator, acceptor_public_key)
-                            .await
-                            .unwrap();
+                        let t = Transport::initiate_handshake(
+                            initiator,
+                            OsRng,
+                            initiator_key,
+                            acceptor_public_key,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
+
                         t.shutdown().await.unwrap();
                     });
 
@@ -50,26 +67,39 @@ fn transfer(bencher: divan::Bencher) {
             let acceptor_key = PrivateKey::random(OsRng);
             let acceptor_public_key = acceptor_key.public_key;
             let initiator_key = PrivateKey::random(OsRng);
-            let yg_acceptor = Yrgourd::new(acceptor_key, OsRng);
-            let yg_initiator = Yrgourd::new(initiator_key, OsRng);
             let (initiator, acceptor) = io::duplex(1024 * 1024);
-            (rt, yg_acceptor, yg_initiator, acceptor_public_key, initiator, acceptor)
+            (rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)
         })
         .counter(BytesCount::new(LEN))
         .bench_values(
-            |(rt, yg_acceptor, yg_initiator, acceptor_public_key, initiator, acceptor)| {
+            |(rt, acceptor_key, initiator_key, acceptor_public_key, initiator, acceptor)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let mut t = yg_acceptor.accept_handshake(acceptor).await.unwrap();
+                        let mut t = Transport::accept_handshake(
+                            acceptor,
+                            OsRng,
+                            acceptor_key,
+                            None,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
                         io::copy(&mut t, &mut io::sink()).await.unwrap();
                         t.shutdown().await.unwrap();
                     });
 
                     let initiator = tokio::spawn(async move {
-                        let mut t = yg_initiator
-                            .initiate_handshake(initiator, acceptor_public_key)
-                            .await
-                            .unwrap();
+                        let mut t = Transport::initiate_handshake(
+                            initiator,
+                            OsRng,
+                            initiator_key,
+                            acceptor_public_key,
+                            Duration::from_secs(120),
+                            100 * 1024 * 1024,
+                        )
+                        .await
+                        .unwrap();
                         io::copy(&mut io::repeat(0xed).take(LEN), &mut t).await.unwrap();
                         t.shutdown().await.unwrap();
                     });
