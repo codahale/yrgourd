@@ -124,31 +124,30 @@ impl<R> Decoder for Codec<R> {
 
         // Open the sealed frame as long as it's as longer than an authenticator tag. It must be at
         // least one byte long.
-        let Some(len) = (frame.len() > TAG_LEN)
-            .then_some(&mut frame)
-            .and_then(|i| self.recv.open(b"frame", i).map(|p| p.len()))
-        else {
+        if self.recv.open(b"frame", &mut frame).is_none() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
-        };
+        }
 
         // Remove the tag.
-        frame.truncate(len);
+        frame.truncate(frame.len() - TAG_LEN);
 
         // Remove the frame type.
-        let frame_type = frame.split_to(1)[0];
-        if frame_type == DATA {
+        match frame.split_to(1)[0] {
             // If it's just data, return it.
-            Ok(Some(frame))
-        } else if frame_type == DATA_WITH_KEY {
+            DATA => Ok(Some(frame)),
             // If it's data with a key, parse the key and if possible, ratchet the recv protocol with
             // the ephemeral shared secret.
-            if let Ok(pk) = PublicKey::try_from(frame.split_to(32).as_ref()) {
-                self.recv.mix(b"ratchet-shared", (self.sender.d * pk.q).compress().as_bytes());
+            DATA_WITH_KEY => {
+                if let Ok(pk) = PublicKey::try_from(frame.split_to(32).as_ref()) {
+                    self.recv.mix(b"ratchet-shared", (self.sender.d * pk.q).compress().as_bytes());
+                }
+                Ok(Some(frame))
             }
-            // Return the data without the key.
-            Ok(Some(frame))
-        } else {
-            Err(io::Error::new(io::ErrorKind::InvalidData, "invalid frame type"))
+            // Otherwise, return an error.
+            unknown => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid frame type: {}", unknown),
+            )),
         }
     }
 }
