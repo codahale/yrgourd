@@ -37,14 +37,6 @@ where
     pub(crate) const fn new(frame: Framed<S, Codec<R>>) -> Transport<S, R> {
         Transport { frame, chunk: None }
     }
-
-    fn has_chunk(&self) -> bool {
-        if let Some(ref chunk) = self.chunk {
-            chunk.remaining() > 0
-        } else {
-            false
-        }
-    }
 }
 
 impl<S, R> Stream for Transport<S, R>
@@ -89,7 +81,7 @@ where
 {
     fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         loop {
-            if self.as_mut().has_chunk() {
+            if self.as_mut().chunk.as_ref().map_or(false, |b| !b.is_empty()) {
                 // This unwrap is very sad, but it can't be avoided.
                 let buf = self.project().chunk.as_ref().unwrap().chunk();
                 return Poll::Ready(Ok(buf));
