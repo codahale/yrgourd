@@ -11,6 +11,10 @@ use tokio_util::codec::Framed;
 
 use crate::codec::Codec;
 
+// This whole type is a bit of a bummer. I'd really like to compose StreamReader and SinkWriter
+// around a Framed instance to provide Stream+Sink+AsyncRead+AsyncWrite, but you can't do that. So,
+// this pulls all the weird bits of boilerplate into a single type.
+
 pin_project! {
     /// A Yrgourd connection. Mutually authenticated and confidential.
     pub struct Transport<S, R> {
