@@ -11,14 +11,17 @@ use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 #[derive(Debug, Clone, Copy, Eq)]
 pub struct PublicKey {
     pub(crate) q: RistrettoPoint,
-    pub(crate) encoded: [u8; 32],
+    pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
 }
+
+/// The length of an encoded public key in bytes.
+pub const PUBLIC_KEY_LEN: usize = 32;
 
 impl TryFrom<&[u8]> for PublicKey {
     type Error = ();
 
     fn try_from(encoded: &[u8]) -> Result<Self, Self::Error> {
-        let encoded: [u8; 32] = encoded.try_into().map_err(|_| ())?;
+        let encoded: [u8; PUBLIC_KEY_LEN] = encoded.try_into().map_err(|_| ())?;
         let q = CompressedRistretto::from_slice(&encoded).map_err(|_| ())?.decompress().ok_or(())?;
         Ok(PublicKey { q, encoded })
     }
@@ -34,7 +37,7 @@ impl FromStr for PublicKey {
     type Err = ParsePublicKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut encoded = [0u8; 32];
+        let mut encoded = [0u8; PUBLIC_KEY_LEN];
         hex::decode_to_slice(s, &mut encoded)?;
 
         CompressedRistretto::from_slice(&encoded)
@@ -98,7 +101,7 @@ impl FromStr for PrivateKey {
     type Err = ParsePrivateKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut encoded = [0u8; 32];
+        let mut encoded = [0u8; PUBLIC_KEY_LEN];
         hex::decode_to_slice(s, &mut encoded)?;
 
         let d: Option<Scalar> = Scalar::from_canonical_bytes(encoded).into();

@@ -5,15 +5,15 @@ use curve25519_dalek::{RistrettoPoint, Scalar};
 use lockstitch::Protocol;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::keys::{PrivateKey, PublicKey};
+use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
 
 /// A request sent by a handshake initiator.
 #[derive(Debug, Clone, Copy)]
 pub struct Request {
     /// The initiator's ephemeral public key.
-    pub ephemeral_pub: [u8; 32],
+    pub ephemeral_pub: [u8; PUBLIC_KEY_LEN],
     /// The initiator's encrypted static public key.
-    pub static_pub: [u8; 32],
+    pub static_pub: [u8; PUBLIC_KEY_LEN],
     /// The encrypted commitment point of the initiator's signature.
     pub i: [u8; 32],
     /// The encrypted proof scalar of the initiator's signature.
@@ -22,7 +22,7 @@ pub struct Request {
 
 impl Request {
     /// The length of an encoded request in bytes.
-    pub const LEN: usize = 32 + 32 + 32 + 32;
+    pub const LEN: usize = PUBLIC_KEY_LEN + PUBLIC_KEY_LEN + 32 + 32;
 
     /// Decodes a serialized request.
     pub fn from_bytes(b: [u8; Self::LEN]) -> Request {
@@ -49,7 +49,7 @@ impl Request {
 #[derive(Debug, Clone, Copy)]
 pub struct Response {
     /// The acceptor's encrypted ephemeral public key.
-    pub ephemeral_pub: [u8; 32],
+    pub ephemeral_pub: [u8; PUBLIC_KEY_LEN],
     /// The encrypted commitment point of the acceptor's signature.
     pub i: [u8; 32],
     /// The encrypted proof scalar of the acceptor's signature.
@@ -58,7 +58,7 @@ pub struct Response {
 
 impl Response {
     /// The length of an encoded response in bytes.
-    pub const LEN: usize = 32 + 32 + 32;
+    pub const LEN: usize = PUBLIC_KEY_LEN + 32 + 32;
 
     /// Decodes a serialized response.
     pub fn from_bytes(b: [u8; Self::LEN]) -> Response {

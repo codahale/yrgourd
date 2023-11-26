@@ -6,7 +6,7 @@ use rand_core::{CryptoRng, RngCore};
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
-use crate::keys::{PrivateKey, PublicKey};
+use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
 
 /// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte little-endian length
 /// prefix, then an encrypted payload, then a 16-byte authenticator tag.
@@ -158,11 +158,11 @@ impl<R> Decoder for Codec<R> {
 
         // Parse the frame type and handle the data.
         match FrameType::try_from(data.split_to(1)[0]) {
+            // If it's data, return the data directly.
             Ok(FrameType::Data) => Ok(Some(data)),
+            // If it's a key and data, parse the ephemeral public key and ratchet the recv state.
             Ok(FrameType::KeyAndData) => {
-                // If it's a key and data, parse the ephemeral public key and ratchet the recv
-                // state.
-                let ephemeral = data.split_to(32);
+                let ephemeral = data.split_to(PUBLIC_KEY_LEN);
                 if let Ok(ephemeral) = PublicKey::try_from(ephemeral.as_ref()) {
                     self.recv
                         .mix(b"ratchet-shared", (self.local.d * ephemeral.q).compress().as_bytes());
@@ -171,6 +171,7 @@ impl<R> Decoder for Codec<R> {
                     Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key"))
                 }
             }
+            // If it's an unknown frame type, return an error.
             Err(unknown) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("invalid frame type {unknown}"),
@@ -179,19 +180,22 @@ impl<R> Decoder for Codec<R> {
     }
 }
 
-const LENGTH_FIELD_LEN: usize = 3;
+const LENGTH_FIELD_LEN: usize = 3; // use a 24-bit length field to cap frames at 16MiB
 
+/// The types of frames which can be sent and received.
 #[derive(Debug)]
 enum FrameType {
+    /// Purely data.
     Data = 0x01,
+    /// An ephemeral public key for ratcheting and data.
     KeyAndData = 0x02,
 }
 
 impl FrameType {
     const fn len(&self) -> usize {
-        match self {
-            FrameType::Data => 1,
-            FrameType::KeyAndData => 1 + 32,
+        1 + match self {
+            FrameType::Data => 0,
+            FrameType::KeyAndData => PUBLIC_KEY_LEN,
         }
     }
 }
