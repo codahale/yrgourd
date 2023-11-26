@@ -46,6 +46,7 @@ where
 impl<S, R> Stream for Transport<S, R>
 where
     S: AsyncRead + Unpin,
+    R: RngCore + CryptoRng,
 {
     type Item = Result<BytesMut, io::Error>;
 

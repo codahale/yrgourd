@@ -6,21 +6,20 @@ use rand_core::{CryptoRng, RngCore};
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
-use crate::{PrivateKey, PublicKey};
+use crate::keys::{PrivateKey, PublicKey};
 
-const DATA: u8 = 1;
-const DATA_WITH_KEY: u8 = 2;
-
-/// A duplex codec for encrypted frames. Each frame has a 3-byte little-endian length prefix, then
-/// an encrypted payload, then a 16-byte authenticator tag.
+/// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte little-endian length
+/// prefix, then an encrypted payload, then a 16-byte authenticator tag.
 #[derive(Debug)]
 pub struct Codec<R> {
     rng: R,
-    sender: PrivateKey,
-    receiver: PublicKey,
+    local: PrivateKey,
+    remote: PublicKey,
     recv: Protocol,
     send: Protocol,
     codec: LengthDelimitedCodec,
+    recv_len: bool,
+    buf: BytesMut,
     next_ratchet_at_time: Instant,
     next_ratchet_at_bytes: u64,
     max_ratchet_time: Duration,
@@ -35,8 +34,8 @@ where
     /// given `recv` and `send` protocols.
     pub fn new(
         rng: R,
-        sender: PrivateKey,
-        receiver: PublicKey,
+        local: PrivateKey,
+        remote: PublicKey,
         recv: Protocol,
         send: Protocol,
         max_ratchet_time: Duration,
@@ -44,18 +43,21 @@ where
     ) -> Codec<R> {
         Codec {
             rng,
-            sender,
-            receiver,
+            local,
+            remote,
             recv,
             send,
             codec: LengthDelimitedCodec::builder()
                 .little_endian()
-                .length_field_length(3)
+                .length_field_length(LENGTH_FIELD_LEN)
+                .max_frame_length(usize::MAX)
                 .new_codec(),
+            recv_len: false,
+            buf: BytesMut::with_capacity(8 * 1024),
             next_ratchet_at_time: Instant::now() + max_ratchet_time,
-            max_ratchet_time,
             next_ratchet_at_bytes: max_ratchet_bytes,
             max_ratchet_bytes,
+            max_ratchet_time,
         }
     }
 }
@@ -67,48 +69,56 @@ where
     type Error = io::Error;
 
     fn encode(&mut self, item: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        // Decrement the ratchet bytes counter, stopping at zero.
+        // Decrement the ratchet data counter.
         self.next_ratchet_at_bytes = self.next_ratchet_at_bytes.saturating_sub(item.len() as u64);
 
-        // Check to see if our ratchet deadline has passed or our counter has exceeded the maximum.
-        let ratchet =
-            if self.next_ratchet_at_time < Instant::now() || self.next_ratchet_at_bytes == 0 {
-                // If so, generate an ephemeral key and reset the deadline and counter.
-                self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
+        // Check to see if we need to ratchet the protocol state.
+        let (ratchet, frame_type) =
+            if self.next_ratchet_at_bytes == 0 || self.next_ratchet_at_time < Instant::now() {
+                // Reset the ratchet data counter and timestamp.
                 self.next_ratchet_at_bytes = self.max_ratchet_bytes;
-                Some(PrivateKey::random(&mut self.rng))
+                self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
+
+                // Generate an ephemeral key pair.
+                let ephemeral = PrivateKey::random(&mut self.rng);
+
+                (Some(ephemeral), FrameType::KeyAndData)
             } else {
-                None
+                (None, FrameType::Data)
             };
 
-        let mut frame = if let Some(ref ephemeral) = ratchet {
-            // If there is an ephemeral key, prepend the DATA_WITH_KEY frame typeand the
-            // ephemeral public key to the data.
-            let mut output = BytesMut::with_capacity(1 + 32 + item.len() + TAG_LEN);
-            output.put_u8(DATA_WITH_KEY);
-            output.extend_from_slice(&ephemeral.public_key.encoded);
-            output
-        } else {
-            // Otherwise, prepend the DATA frame type.
-            let mut output = BytesMut::with_capacity(1 + item.len() + TAG_LEN);
-            output.put_u8(DATA);
-            output
+        // Calculate the full frame length.
+        let n = frame_type.len() + item.len() + TAG_LEN;
+
+        // Reserve enough capacity for the length field and the full frame.
+        dst.reserve(LENGTH_FIELD_LEN + n);
+
+        // Encode the length field as a 3-byte little endian integer and then encrypt it.
+        let mut length_field = (n as u32).to_le_bytes();
+        self.send.encrypt(b"len", &mut length_field[..LENGTH_FIELD_LEN]);
+        dst.extend_from_slice(&length_field[..LENGTH_FIELD_LEN]);
+
+        // Copy the frame data to the encoder's buffer, add an empty tag, and seal it.
+        self.buf.reserve(n);
+        self.buf.put_u8(frame_type.into());
+        if let Some(ref ephemeral) = ratchet {
+            // Add the ephemeral public key if we're ratcheting.
+            self.buf.extend_from_slice(&ephemeral.public_key.encoded);
         };
+        self.buf.extend_from_slice(&item);
+        self.buf.extend_from_slice(&[0u8; TAG_LEN]);
+        self.send.seal(b"frame", &mut self.buf);
 
-        // Append the actual data and room for an authenticator tag.
-        frame.extend_from_slice(&item);
-        frame.extend_from_slice(&[0u8; TAG_LEN]);
+        // Append the sealed frame data and reset the buffer.
+        dst.extend_from_slice(&self.buf);
+        self.buf.clear();
 
-        // Seal the frame.
-        self.send.seal(b"frame", &mut frame);
-
-        // Do any necessary ratcheting after the frame has been sealed.
+        // Ratchet the protocol state, if needed.
         if let Some(ephemeral) = ratchet {
-            self.send.mix(b"ratchet-shared", (ephemeral.d * self.receiver.q).compress().as_bytes());
+            self.send.mix(b"ratchet-shared", (ephemeral.d * self.remote.q).compress().as_bytes());
         }
 
-        // Prepend the length delimiter for the frame.
-        self.codec.encode(Bytes::from(frame), dst)
+        Ok(())
     }
 }
 
@@ -117,37 +127,89 @@ impl<R> Decoder for Codec<R> {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // If there is no full frame to process, exit early.
-        let Some(mut frame) = self.codec.decode(src)? else {
+        // Wait for the length field.
+        if src.len() < LENGTH_FIELD_LEN {
             return Ok(None);
-        };
-
-        // Open the sealed frame as long as it's as longer than an authenticator tag. It must be at
-        // least one byte long.
-        if self.recv.open(b"frame", &mut frame).is_none() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
         }
 
-        // Remove the tag.
-        frame.truncate(frame.len() - TAG_LEN);
+        // If the length field hasn't been received yet and we have enough data for it, decrypt the
+        // length field in place and flag that it's been received.
+        if !self.recv_len {
+            self.recv.decrypt(b"len", &mut src[..LENGTH_FIELD_LEN]);
+            self.recv_len = true;
+        }
 
-        // Remove the frame type.
-        match frame.split_to(1)[0] {
-            // If it's just data, return it.
-            DATA => Ok(Some(frame)),
-            // If it's data with a key, parse the key and if possible, ratchet the recv protocol with
-            // the ephemeral shared secret.
-            DATA_WITH_KEY => {
-                if let Ok(pk) = PublicKey::try_from(frame.split_to(32).as_ref()) {
-                    self.recv.mix(b"ratchet-shared", (self.sender.d * pk.q).compress().as_bytes());
-                }
-                Ok(Some(frame))
+        // Use LengthDelimitedCodec to decode the plaintext length field.
+        let mut data = match self.codec.decode(src) {
+            // If a full frame has been received, reset the length field receipt flag.
+            Ok(Some(data)) => {
+                self.recv_len = false;
+                data
             }
-            // Otherwise, return an error.
-            unknown => Err(io::Error::new(
+            // Return errors and incomplete frames back to Framed.
+            other => return other,
+        };
+
+        // Open the frame data and strip the tag or return an error.
+        if self.recv.open(b"frame", &mut data).is_none() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
+        }
+        data.truncate(data.len() - TAG_LEN);
+
+        // Parse the frame type and handle the data.
+        match FrameType::try_from(data.split_to(1)[0]) {
+            Ok(FrameType::Data) => Ok(Some(data)),
+            Ok(FrameType::KeyAndData) => {
+                // If it's a key and data, parse the ephemeral public key and ratchet the recv
+                // state.
+                let ephemeral = data.split_to(32);
+                if let Ok(ephemeral) = PublicKey::try_from(ephemeral.as_ref()) {
+                    self.recv
+                        .mix(b"ratchet-shared", (self.local.d * ephemeral.q).compress().as_bytes());
+                    Ok(Some(data))
+                } else {
+                    Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key"))
+                }
+            }
+            Err(unknown) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("invalid frame type: {}", unknown),
+                format!("invalid frame type {unknown}"),
             )),
+        }
+    }
+}
+
+const LENGTH_FIELD_LEN: usize = 3;
+
+#[derive(Debug)]
+enum FrameType {
+    Data = 0x01,
+    KeyAndData = 0x02,
+}
+
+impl FrameType {
+    const fn len(&self) -> usize {
+        match self {
+            FrameType::Data => 1,
+            FrameType::KeyAndData => 1 + 32,
+        }
+    }
+}
+
+impl From<FrameType> for u8 {
+    fn from(value: FrameType) -> Self {
+        value as u8
+    }
+}
+
+impl TryFrom<u8> for FrameType {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x01 => Ok(FrameType::Data),
+            0x02 => Ok(FrameType::KeyAndData),
+            other => Err(other),
         }
     }
 }

@@ -140,13 +140,15 @@ little-endian length prepended to each packet. (The length does not include thes
 To send a frame, the sender would perform the following:
 
 ```text
-yg_send ← seal(yg_send, "frame", frame)
+(yg_send, len) ← encrypt(yg_send, "len", u24_le(|frame|))
+(yg_send, frame) ← seal(yg_send, "frame", frame)
 ```
 
 To receive a packet, the receiver would perform the following:
 
 ```text
-yg_recv ← open(yg_recv, "frame", frame)
+(yg_recv, len) ← decrypt(yg_recv, "len", len)
+(yg_recv, frame) ← open(yg_recv, "frame", frame)
 ```
 
 The initiator's `yg_send` and the acceptor's `yg_recv` stay synchronized, likewise with the
@@ -157,13 +159,13 @@ with a `2` contains a ephemeral Ristretto255 public key prepended to the data fo
 initiate a ratchet, the transport sends a `2` frame and then performs the following:
 
 ```text
-yg_send ← mix(yg_send, "ratchet-shared", ecdh(receiver.pub, ephemeral.priv))
+yg_send ← mix(yg_send, "ratchet-shared", ecdh(remote.pub, ephemeral.priv))
 ```
 
 The receiver, upon decrypting a `2` frame performs the following:
 
 ```text
-yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ephemeral.pub, receiver.priv))
+yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ephemeral.pub, local.priv))
 ```
 
 Ratchets are performed every two minutes, or on every frame if fewer than one frame is sent every
@@ -174,11 +176,11 @@ two minutes.
 On my M2 MacBook Air:
 
 ```text
-Timer precision: 41 ns
+Timer precision: 41.66 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  369.4 µs      │ 523.9 µs      │ 402.4 µs      │ 407.7 µs      │ 100     │ 100
-╰─ transfer   24.21 ms      │ 33.97 ms      │ 25.59 ms      │ 25.76 ms      │ 100     │ 100
-              4.33 GB/s     │ 3.086 GB/s    │ 4.097 GB/s    │ 4.069 GB/s    │         │
+├─ handshake  366.7 µs      │ 553.7 µs      │ 400.7 µs      │ 403.3 µs      │ 1945    │ 1945
+╰─ transfer   27.14 ms      │ 30.25 ms      │ 28.15 ms      │ 28.18 ms      │ 100     │ 100
+              3.598 GiB/s   │ 3.227 GiB/s   │ 3.468 GiB/s   │ 3.464 GiB/s   │         │
 ```
 
 `handshake` measures the time it takes to establish a yrgourd connection over a Tokio duplex stream;

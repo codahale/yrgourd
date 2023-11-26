@@ -262,4 +262,33 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn large_transfer() {
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let acceptor_key = PrivateKey::random(OsRng);
+        let acceptor_pub = acceptor_key.public_key;
+        let mut acceptor = Acceptor::new(OsRng, acceptor_key);
+        let initiator_key = PrivateKey::random(OsRng);
+        let mut initiator = Initiator::new(OsRng, initiator_key);
+        let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
+
+        rt.block_on(async move {
+            let acceptor = tokio::spawn(async move {
+                let mut t = acceptor.accept_handshake(acceptor_conn).await.unwrap();
+                io::copy(&mut t, &mut io::sink()).await.unwrap();
+                t.shutdown().await.unwrap();
+            });
+
+            let initiator = tokio::spawn(async move {
+                let mut t =
+                    initiator.initiate_handshake(initiator_conn, acceptor_pub).await.unwrap();
+                io::copy(&mut io::repeat(0xed).take(100 * 1024 * 1024), &mut t).await.unwrap();
+                t.shutdown().await.unwrap();
+            });
+
+            acceptor.await.unwrap();
+            initiator.await.unwrap();
+        });
+    }
 }
