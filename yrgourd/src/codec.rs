@@ -87,8 +87,11 @@ where
                 (None, FrameType::Data)
             };
 
-        // Calculate the full frame length.
+        // Calculate and validate the full frame length.
         let n = frame_type.len() + item.len() + TAG_LEN;
+        if n > 1 << (LENGTH_FIELD_LEN * 8) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "oversize frame"));
+        }
 
         // Reserve enough capacity for the length field and the full frame.
         dst.reserve(LENGTH_FIELD_LEN + n);
