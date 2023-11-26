@@ -189,32 +189,32 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await.unwrap();
-            t.write_all(b"this is a server").await.unwrap();
-            t.flush().await.unwrap();
+            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
+            t.write_all(b"this is a server").await?;
+            t.flush().await?;
 
             let mut buf = Vec::new();
-            t.read_to_end(&mut buf).await.unwrap();
+            t.read_to_end(&mut buf).await?;
             assert_eq!(&buf, b"this is a client");
 
-            t.shutdown().await.unwrap();
+            t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await.unwrap();
+            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
 
-            t.write_all(b"this is a client").await.unwrap();
-            t.flush().await.unwrap();
+            t.write_all(b"this is a client").await?;
+            t.flush().await?;
 
             let mut buf = [0u8; 16];
-            t.read_exact(&mut buf).await.unwrap();
+            t.read_exact(&mut buf).await?;
             assert_eq!(&buf, b"this is a server");
 
-            t.shutdown().await.unwrap();
+            t.shutdown().await
         });
 
-        acceptor.await.unwrap();
-        initiator.await.unwrap();
+        acceptor.await??;
+        initiator.await??;
 
         Ok(())
     }
@@ -230,35 +230,35 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await.unwrap();
+            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
 
             let mut buf = String::new();
-            t.read_to_string(&mut buf).await.unwrap();
+            t.read_to_string(&mut buf).await?;
             assert_eq!(&buf, "this is a client and I ratcheted the connection and it was OK");
 
-            t.shutdown().await.unwrap();
+            t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await.unwrap();
+            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
 
             // This frame is sent as data.
-            t.write_all(b"this is a client").await.unwrap();
-            t.flush().await.unwrap();
+            t.write_all(b"this is a client").await?;
+            t.flush().await?;
 
             // This frame is sent with an ephemeral public key.
-            t.write_all(b" and I ratcheted the connection").await.unwrap();
-            t.flush().await.unwrap();
+            t.write_all(b" and I ratcheted the connection").await?;
+            t.flush().await?;
 
             // This frame is sent with an ephemeral public key.
-            t.write_all(b" and it was OK").await.unwrap();
-            t.flush().await.unwrap();
+            t.write_all(b" and it was OK").await?;
+            t.flush().await?;
 
-            t.shutdown().await.unwrap();
+            t.shutdown().await
         });
 
-        acceptor.await.unwrap();
-        initiator.await.unwrap();
+        acceptor.await??;
+        initiator.await??;
 
         Ok(())
     }
@@ -273,19 +273,19 @@ mod tests {
         let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await.unwrap();
-            io::copy(&mut t, &mut io::sink()).await.unwrap();
-            t.shutdown().await.unwrap();
+            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
+            io::copy(&mut t, &mut io::sink()).await?;
+            t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await.unwrap();
-            io::copy(&mut io::repeat(0xed).take(100 * 1024 * 1024), &mut t).await.unwrap();
-            t.shutdown().await.unwrap();
+            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
+            io::copy(&mut io::repeat(0xed).take(100 * 1024 * 1024), &mut t).await?;
+            t.shutdown().await
         });
 
-        acceptor.await?;
-        initiator.await?;
+        acceptor.await??;
+        initiator.await??;
 
         Ok(())
     }
