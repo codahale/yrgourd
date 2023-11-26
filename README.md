@@ -1,11 +1,29 @@
 # yrgourd
 
-WARNING: You should, under no circumstances, use this.
-
-yrgourd uses [Lockstitch][] to establish mutually authenticated, confidential connections with
-forward secrecy. Like a toy Wireguard.
+yrgourd uses [Lockstitch][] to establish mutually-authenticated, forward-secure, confidential,
+high-performance connections. Like a toy Wireguard.
 
 [Lockstitch]: https://github.com/codahale/lockstitch
+
+## ⚠️ WARNING: You should not use this. ⚠️
+
+Neither the design nor the implementation of this library have been independently evaluated. It uses
+very recent cryptographic algorithms in slightly heterodox ways and may well be just an absolutely
+terrible idea. The design is documented [below](#design); read it and see if the arguments therein
+are convincing.
+
+In addition, there is absolutely no guarantee of backwards compatibility.
+
+## Things It Does
+
+* Uses Ristretto255 for asymmetric operations and SHA-256/AEGIS-128L for symmetric operations.
+* Capable of >10 Gb/sec throughput.
+* Everything but the first 32 bytes of a connection is encrypted.
+* Handshakes are both sender and receiver forward-secure.
+* Handshakes are authenticated via Schnorr signatures from both initiator and acceptor.
+* Uses ephemeral keys to ratchet the connection state every `N` seconds or `M` bytes.
+* Acceptors can restrict handshakes to a set of valid initiator public keys.
+* Core logic for handshakes and transport is <500 LoC.
 
 ## Demo
 
