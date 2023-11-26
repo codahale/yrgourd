@@ -16,7 +16,7 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 
 ## Things It Does
 
-* Uses Ristretto255 for asymmetric operations and SHA-256/AEGIS-128L for symmetric operations.
+* Uses [Ristretto255][] for asymmetric operations and SHA-256/[AEGIS-128L][] for symmetric operations.
 * Capable of >10 Gb/sec throughput.
 * Everything but the first 32 bytes of a connection is encrypted.
 * Handshakes are both sender and receiver forward-secure.
@@ -24,6 +24,9 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 * Uses ephemeral keys to ratchet the connection state every `N` seconds or `M` bytes.
 * Acceptors can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
+
+[Ristretto255]: https://www.ietf.org/archive/id/draft-irtf-cfrg-ristretto255-decaf448-08.html
+[AEGIS-128L]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aegis-aead-06.html
 
 ## Demo
 
@@ -66,8 +69,8 @@ connect <--plaintext--> proxy <--yrgourd encrypted--> reverse-proxy <--plaintext
 
 ## Design
 
-Both initiator and acceptor have Ristretto255 key pairs; the initiator knows the acceptor's public
-key.
+Both initiator and acceptor have [Ristretto255][] key pairs; the initiator knows the acceptor's
+public key.
 
 The initiator initiates a handshake by generating an ephemeral key pair and executing the following:
 
