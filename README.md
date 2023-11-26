@@ -201,6 +201,17 @@ benches       fastest       │ slowest       │ median        │ mean        
               3.598 GiB/s   │ 3.227 GiB/s   │ 3.468 GiB/s   │ 3.464 GiB/s   │         │
 ```
 
+On a GCP `c3-standard-4`:
+
+```text
+Timer precision: 25.18 ns
+benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ handshake  508.5 µs      │ 869.6 µs      │ 558.3 µs      │ 561.8 µs      │ 1455    │ 1455
+╰─ transfer   39.55 ms      │ 50.09 ms      │ 44.98 ms      │ 44.69 ms      │ 100     │ 100
+              2.468 GiB/s   │ 1.949 GiB/s   │ 2.17 GiB/s    │ 2.184 GiB/s   │         │
+
+```
+
 `handshake` measures the time it takes to establish a yrgourd connection over a Tokio duplex stream;
 `transfer` measures the time it takes to transfer 100MiB via a yrgourd connection over a Tokio
 duplex stream.
