@@ -79,17 +79,15 @@ where
                 self.next_ratchet_at_bytes = self.max_ratchet_bytes;
                 self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
 
-                // Generate an ephemeral key pair.
-                let ephemeral = PrivateKey::random(&mut self.rng);
-
-                (Some(ephemeral), FrameType::KeyAndData)
+                // Generate a ratchet key pair.
+                (Some(PrivateKey::random(&mut self.rng)), FrameType::KeyAndData)
             } else {
                 (None, FrameType::Data)
             };
 
         // Calculate and validate the full frame length.
         let n = frame_type.len() + item.len() + TAG_LEN;
-        if n > 1 << (LENGTH_FIELD_LEN * 8) {
+        if n > MAX_FRAME_LEN {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "oversize frame"));
         }
 
@@ -101,12 +99,11 @@ where
         self.send.encrypt(b"len", &mut length_field[..LENGTH_FIELD_LEN]);
         dst.extend_from_slice(&length_field[..LENGTH_FIELD_LEN]);
 
-        // Copy the frame data to the encoder's buffer, add an empty tag, and seal it.
+        // Add the frame type, the ratchet key, the payload, and an empty tag, then seal it.
         self.buf.reserve(n);
         self.buf.put_u8(frame_type.into());
-        if let Some(ref ephemeral) = ratchet {
-            // Add the ephemeral public key if we're ratcheting.
-            self.buf.extend_from_slice(&ephemeral.public_key.encoded);
+        if let Some(ref ratchet) = ratchet {
+            self.buf.extend_from_slice(&ratchet.public_key.encoded);
         };
         self.buf.extend_from_slice(&item);
         self.buf.extend_from_slice(&[0u8; TAG_LEN]);
@@ -117,8 +114,8 @@ where
         self.buf.clear();
 
         // Ratchet the protocol state, if needed.
-        if let Some(ephemeral) = ratchet {
-            self.send.mix(b"ratchet-shared", (ephemeral.d * self.remote.q).compress().as_bytes());
+        if let Some(ratchet) = ratchet {
+            self.send.mix(b"ratchet-shared", (ratchet.d * self.remote.q).compress().as_bytes());
         }
 
         Ok(())
@@ -182,13 +179,14 @@ impl<R> Decoder for Codec<R> {
 }
 
 const LENGTH_FIELD_LEN: usize = 3; // use a 24-bit length field to cap frames at 16MiB
+const MAX_FRAME_LEN: usize = 1 << (LENGTH_FIELD_LEN * 8);
 
 /// The types of frames which can be sent and received.
 #[derive(Debug)]
 enum FrameType {
     /// Purely data.
     Data = 0x01,
-    /// An ephemeral public key for ratcheting and data.
+    /// A public key for ratcheting and data.
     KeyAndData = 0x02,
 }
 

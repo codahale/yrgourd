@@ -173,17 +173,17 @@ The initiator's `yg_send` and the acceptor's `yg_recv` stay synchronized, likewi
 initiator's `yg_recv` and the acceptor's `yg_send`.
 
 Each frame begins with a frame type. A frame which begins with a `1` contains only data. A frame
-with a `2` contains a ephemeral Ristretto255 public key prepended to the data for ratcheting. To
-initiate a ratchet, the transport sends a `2` frame and then performs the following:
+with a `2` contains a Ristretto255 public key prepended to the data for ratcheting. To initiate a
+ratchet, the transport sends a `2` frame and then performs the following:
 
 ```text
-yg_send ← mix(yg_send, "ratchet-shared", ecdh(remote.pub, ephemeral.priv))
+yg_send ← mix(yg_send, "ratchet-shared", ecdh(remote.pub, ratchet.priv))
 ```
 
 The receiver, upon decrypting a `2` frame performs the following:
 
 ```text
-yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ephemeral.pub, local.priv))
+yg_recv ← mix(yg_recv, "ratchet-shared", ecdh(ratchet.pub, local.priv))
 ```
 
 Ratchets are performed every two minutes, or on every frame if fewer than one frame is sent every
