@@ -1,6 +1,6 @@
-# yrgourd
+# Yrgourd
 
-yrgourd uses [Lockstitch][] to establish mutually-authenticated, forward-secure, confidential,
+Yrgourd uses [Lockstitch][] to establish mutually-authenticated, forward-secure, confidential,
 high-performance connections. Like a toy Wireguard.
 
 [Lockstitch]: https://github.com/codahale/lockstitch
@@ -64,7 +64,7 @@ Anything you write to `STDIN` will be sent via the proxy server and reverse prox
 server and returned.
 
 ```text
-connect <--plaintext--> proxy <--yrgourd encrypted--> reverse-proxy <--plaintext--> echo
+connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 ```
 
 ## Design
@@ -215,8 +215,8 @@ benches       fastest       │ slowest       │ median        │ mean        
 
 ```
 
-`handshake` measures the time it takes to establish a yrgourd connection over a Tokio duplex stream;
-`transfer` measures the time it takes to transfer 100MiB via a yrgourd connection over a Tokio
+`handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
+`transfer` measures the time it takes to transfer 100MiB via a Yrgourd connection over a Tokio
 duplex stream.
 
 See the [Lockstitch][] documentation for specifics on compiler options for performance.
