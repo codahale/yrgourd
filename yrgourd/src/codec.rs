@@ -161,20 +161,18 @@ impl<R> Decoder for Codec<R> {
 
         // Parse the frame type and handle the data.
         match FrameType::try_from(data.split_to(1)[0]) {
-            // If it's data, return the data directly.
-            Ok(FrameType::Data) => Ok(Some(data)),
-            // If it's a key and data, parse the ephemeral public key and ratchet the recv state.
+            Ok(FrameType::Data) => Ok(Some(data)), // Just return the frame's payload.
             Ok(FrameType::KeyAndData) => {
-                let ephemeral = data.split_to(PUBLIC_KEY_LEN);
-                if let Ok(ephemeral) = PublicKey::try_from(ephemeral.as_ref()) {
-                    self.recv
-                        .mix(b"ratchet-shared", (self.local.d * ephemeral.q).compress().as_bytes());
-                    Ok(Some(data))
-                } else {
-                    Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key"))
-                }
+                // Split off and decode the ratchet public key.
+                let rk = data.split_to(PUBLIC_KEY_LEN);
+                let rk = PublicKey::try_from(rk.as_ref()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key")
+                })?;
+                // Mix the ratchet shared secret into the recv protocol.
+                self.recv.mix(b"ratchet-shared", (self.local.d * rk.q).compress().as_bytes());
+                // Return the frame's payload.
+                Ok(Some(data))
             }
-            // If it's an unknown frame type, return an error.
             Err(unknown) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("invalid frame type {unknown}"),
