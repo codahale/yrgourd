@@ -26,6 +26,10 @@ enum Command {
     Proxy(ProxyOpts),
     /// Run a proxy which accepts encrypted clients and makes plaintext connections.
     ReverseProxy(ReverseProxyOpts),
+    /// Run a client which connects to an encrypted server and writes N bytes.
+    Stream(StreamOpts),
+    /// Run a server which accepts encrypted clients and reads everything.
+    Sink(SinkOpts),
 }
 
 #[derive(Debug, Parser)]
@@ -58,7 +62,7 @@ struct ProxyOpts {
     server_public_key: PublicKey,
 
     #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
 
     #[clap(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
@@ -82,13 +86,61 @@ struct ReverseProxyOpts {
     allowed_clients: Vec<PublicKey>,
 
     #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
-    max_ratchet_duration: Duration,
+    max_ratchet_time: Duration,
 
     #[clap(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
 
     #[clap(long, default_value = "127.0.0.1:4040")]
     to: String,
+}
+
+#[derive(Debug, Parser)]
+struct StreamOpts {
+    #[clap(long, default_value = "127.0.0.1:5050")]
+    addr: String,
+
+    #[clap(default_value = "104857600")]
+    n: u64,
+
+    #[clap(
+        long,
+        default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
+    )]
+    private_key: PrivateKey,
+
+    #[clap(
+        long,
+        default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
+    )]
+    server_public_key: PublicKey,
+
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    max_ratchet_time: Duration,
+
+    #[clap(long, default_value = "104857600")]
+    max_ratchet_bytes: u64,
+}
+
+#[derive(Debug, Parser)]
+struct SinkOpts {
+    #[clap(long, default_value = "127.0.0.1:5050")]
+    addr: String,
+
+    #[clap(
+        long,
+        default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
+    )]
+    private_key: PrivateKey,
+
+    #[clap(long)]
+    allowed_clients: Vec<PublicKey>,
+
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    max_ratchet_time: Duration,
+
+    #[clap(long, default_value = "104857600")]
+    max_ratchet_bytes: u64,
 }
 
 #[tokio::main]
@@ -104,7 +156,7 @@ async fn main() -> Result<(), io::Error> {
                 &args.to,
                 args.private_key,
                 args.server_public_key,
-                args.max_ratchet_duration,
+                args.max_ratchet_time,
                 args.max_ratchet_bytes,
             )
             .await
@@ -115,7 +167,28 @@ async fn main() -> Result<(), io::Error> {
                 &args.to,
                 args.private_key,
                 &args.allowed_clients,
-                args.max_ratchet_duration,
+                args.max_ratchet_time,
+                args.max_ratchet_bytes,
+            )
+            .await
+        }
+        Command::Stream(args) => {
+            stream(
+                &args.addr,
+                args.n,
+                args.private_key,
+                args.server_public_key,
+                args.max_ratchet_time,
+                args.max_ratchet_bytes,
+            )
+            .await
+        }
+        Command::Sink(args) => {
+            sink(
+                &args.addr,
+                args.private_key,
+                &args.allowed_clients,
+                args.max_ratchet_time,
                 args.max_ratchet_bytes,
             )
             .await
@@ -211,6 +284,50 @@ async fn echo(addr: impl ToSocketAddrs) -> io::Result<()> {
             }
         });
     }
+}
+
+/// Listen for TCP connections to the given address and read all data.
+async fn sink(
+    addr: impl ToSocketAddrs,
+    server_key: PrivateKey,
+    allowed_clients: &[PublicKey],
+    max_ratchet_time: Duration,
+    max_ratchet_bytes: u64,
+) -> io::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    let mut acceptor = Acceptor::new(OsRng, server_key);
+    acceptor.max_ratchet_time = max_ratchet_time;
+    acceptor.max_ratchet_bytes = max_ratchet_bytes;
+    if !allowed_clients.is_empty() {
+        acceptor.allow_policy =
+            AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
+    }
+    loop {
+        let (socket, _) = listener.accept().await?;
+        let mut conn = acceptor.accept_handshake(socket).await?;
+        tokio::spawn(async move {
+            io::copy(&mut conn, &mut io::sink()).await.expect("should copy everything");
+            conn.shutdown().await.expect("should close the socket");
+        });
+    }
+}
+
+/// Connect to the given address and write the given number of bytes to it.
+async fn stream(
+    addr: impl ToSocketAddrs,
+    n: u64,
+    client_key: PrivateKey,
+    server_public_key: PublicKey,
+    max_ratchet_time: Duration,
+    max_ratchet_bytes: u64,
+) -> io::Result<()> {
+    let mut initiator = Initiator::new(OsRng, client_key);
+    initiator.max_ratchet_time = max_ratchet_time;
+    initiator.max_ratchet_bytes = max_ratchet_bytes;
+    let socket = TcpStream::connect(addr).await?;
+    let mut conn = initiator.initiate_handshake(socket, server_public_key).await?;
+    io::copy(&mut io::repeat(0x4f).take(n), &mut conn).await?;
+    conn.shutdown().await
 }
 
 /// Connect to the given TCP address and pipe stdin/stdout.
