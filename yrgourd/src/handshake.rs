@@ -343,4 +343,29 @@ mod tests {
             "should not allow a handshake with an initiator not in the set"
         );
     }
+
+    #[test]
+    fn fuzz_acceptor_respond() {
+        let rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let acceptor_key = PrivateKey::random(rng);
+
+        bolero::check!().with_type::<(u64, [u8; REQUEST_LEN])>().cloned().for_each(
+            |(seed, req)| {
+                let mut rng = ChaChaRng::seed_from_u64(seed);
+                let mut acceptor = AcceptorState::new(&acceptor_key, None);
+                assert!(acceptor.respond(&mut rng, req).is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn fuzz_initiator_finalize() {
+        let rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let initiator_key = PrivateKey::random(rng);
+
+        bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|req| {
+            let mut initiator = InitiatorState::new(&initiator_key, initiator_key.public_key);
+            assert!(initiator.finalize(req).is_none());
+        });
+    }
 }
