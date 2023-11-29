@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use codec::Codec;
-use handshake::{AcceptorState, InitiatorState, Request, Response};
+use handshake::{AcceptorState, InitiatorState, REQUEST_LEN, RESPONSE_LEN};
 use rand_core::{CryptoRng, RngCore};
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Framed;
@@ -56,17 +56,16 @@ where
         acceptor: PublicKey,
     ) -> io::Result<Transport<S, R>> {
         // Initialize a handshake initiator state and initiate a handshake.
-        let mut handshake = InitiatorState::new(&mut self.rng, &self.private_key, acceptor);
+        let mut handshake = InitiatorState::new(&self.private_key, acceptor);
         let req = handshake.initiate(&mut self.rng);
-        stream.write_all(&req.to_bytes()).await?;
+        stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the acceptor.
-        let mut resp = [0u8; Response::LEN];
+        let mut resp = [0u8; RESPONSE_LEN];
         stream.read_exact(&mut resp).await?;
-        let resp = Response::from_bytes(resp);
 
         // Validate the acceptor response.
-        let Some((recv, send)) = handshake.finalize(&resp) else {
+        let Some((recv, send)) = handshake.finalize(resp) else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
@@ -144,17 +143,16 @@ where
         );
 
         // Read and parse the handshake request from the initiator.
-        let mut request = [0u8; Request::LEN];
+        let mut request = [0u8; REQUEST_LEN];
         stream.read_exact(&mut request).await?;
-        let req = Request::from_bytes(request);
 
         // Process the handshake and generate a response.
         let (pk, recv, send, resp) = handshake
-            .respond(&mut self.rng, &req)
+            .respond(&mut self.rng, request)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
-        stream.write_all(&resp.to_bytes()).await?;
+        stream.write_all(&resp).await?;
 
         Ok(Transport::new(Framed::new(
             stream,
