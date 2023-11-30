@@ -85,7 +85,6 @@ impl<'a> InitiatorState<'a> {
 
     /// Finalizes a handshake given the acceptor's response. If valid, returns a `(recv, send)`
     /// pair of [`Protocol`]s for transport.
-    #[allow(clippy::useless_asref)]
     pub fn finalize(&mut self, mut resp: [u8; RESPONSE_LEN]) -> Option<(Protocol, Protocol)> {
         // Split the response into its components.
         let (ephemeral_pub, i) = resp.split_at_mut(PUBLIC_KEY_LEN);
@@ -93,7 +92,7 @@ impl<'a> InitiatorState<'a> {
 
         // Decrypt the acceptor's ephemeral public key.
         self.protocol.decrypt(b"acceptor-ephemeral-pub", ephemeral_pub);
-        let ephemeral_pub = PublicKey::try_from(ephemeral_pub.as_ref()).ok()?;
+        let ephemeral_pub = PublicKey::try_from(<&[u8]>::from(ephemeral_pub)).ok()?;
 
         // Calculate the ephemeral shared secret and mix it into the protocol.
         let ephemeral_shared = (self.private_key.d * ephemeral_pub.q).compress().to_bytes();
@@ -149,7 +148,6 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
     /// Responds to a handshake given the initiator's request. If valid, returns the initiator's
     /// public key, a `(recv, send)` pair of [`Protocol`]s for transport, and a response to be sent
     /// to the initiator.
-    #[allow(clippy::useless_asref)]
     pub fn respond(
         &mut self,
         mut rng: impl RngCore + CryptoRng,
@@ -173,7 +171,7 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
 
         // Decrypt and parse the initiator's static public key.
         self.protocol.decrypt(b"initiator-static-pub", static_pub);
-        let static_pub = PublicKey::try_from(static_pub.as_ref()).ok()?;
+        let static_pub = PublicKey::try_from(<&[u8]>::from(static_pub)).ok()?;
 
         // If initiators are restricted, check that the initiator is in the allowed set.
         if self.allowed_initiators.is_some_and(|keys| !keys.contains(&static_pub)) {
