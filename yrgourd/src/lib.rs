@@ -19,8 +19,7 @@ mod transport;
 
 /// The actor in a Yrgourd connection who initiates the handshake.
 #[derive(Debug)]
-pub struct Initiator<R> {
-    rng: R,
+pub struct Initiator {
     private_key: PrivateKey,
 
     /// The maximum amount of time between protocol ratchets.
@@ -29,14 +28,10 @@ pub struct Initiator<R> {
     pub max_ratchet_bytes: u64,
 }
 
-impl<R> Initiator<R>
-where
-    R: RngCore + CryptoRng + Clone,
-{
-    /// Create a new [`Initiator`] with the given RNG and private key.
-    pub fn new(rng: R, private_key: PrivateKey) -> Initiator<R> {
+impl Initiator {
+    /// Create a new [`Initiator`] with the given private key.
+    pub const fn new(private_key: PrivateKey) -> Initiator {
         Initiator {
-            rng,
             private_key,
             max_ratchet_time: Duration::from_secs(120),
             max_ratchet_bytes: 100 * 1024 * 1024,
@@ -50,14 +45,19 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn initiate_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    pub async fn initiate_handshake<S, R>(
         &mut self,
+        mut rng: R,
         mut stream: S,
         acceptor: PublicKey,
-    ) -> io::Result<Transport<S, R>> {
+    ) -> io::Result<Transport<S, R>>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+        R: RngCore + CryptoRng,
+    {
         // Initialize a handshake initiator state and initiate a handshake.
         let mut handshake = InitiatorState::new(&self.private_key, acceptor);
-        let req = handshake.initiate(&mut self.rng);
+        let req = handshake.initiate(&mut rng);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the acceptor.
@@ -72,7 +72,7 @@ where
         Ok(Transport::new(Framed::new(
             stream,
             Codec::new(
-                self.rng.clone(),
+                rng,
                 self.private_key.clone(),
                 acceptor,
                 recv,
@@ -95,8 +95,7 @@ pub enum AllowPolicy {
 
 /// The actor in a Yrgourd connection who accepts a handshake.
 #[derive(Debug)]
-pub struct Acceptor<R> {
-    rng: R,
+pub struct Acceptor {
     private_key: PrivateKey,
 
     /// The maximum amount of time between protocol ratchets.
@@ -107,13 +106,10 @@ pub struct Acceptor<R> {
     pub allow_policy: AllowPolicy,
 }
 
-impl<R> Acceptor<R>
-where
-    R: RngCore + CryptoRng + Clone,
-{
-    pub fn new(rng: R, private_key: PrivateKey) -> Acceptor<R> {
+impl Acceptor {
+    /// Create a new [`Acceptor`] with the given private key.
+    pub const fn new(private_key: PrivateKey) -> Acceptor {
         Acceptor {
-            rng,
             private_key,
             max_ratchet_time: Duration::from_secs(120),
             max_ratchet_bytes: 100 * 1024 * 1024,
@@ -128,9 +124,14 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn accept_handshake<S>(&mut self, mut stream: S) -> io::Result<Transport<S, R>>
+    pub async fn accept_handshake<S, R>(
+        &mut self,
+        mut rng: R,
+        mut stream: S,
+    ) -> io::Result<Transport<S, R>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
+        R: RngCore + CryptoRng,
     {
         // Initialize a handshake acceptor state.
         let mut handshake = AcceptorState::new(
@@ -147,7 +148,7 @@ where
 
         // Process the handshake and generate a response.
         let (pk, recv, send, resp) = handshake
-            .respond(&mut self.rng, request)
+            .respond(&mut rng, request)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
@@ -156,7 +157,7 @@ where
         Ok(Transport::new(Framed::new(
             stream,
             Codec::new(
-                self.rng.clone(),
+                rng,
                 self.private_key.clone(),
                 pk,
                 recv,
@@ -178,15 +179,15 @@ mod tests {
     #[tokio::test]
     async fn round_trip() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let mut initiator = Initiator::new(OsRng, PrivateKey::random(OsRng));
+        let mut initiator = Initiator::new(PrivateKey::random(OsRng));
         let acceptor_key = PrivateKey::random(&mut rng);
         let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(OsRng, acceptor_key);
+        let mut acceptor = Acceptor::new(acceptor_key);
 
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
+            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
             t.write_all(b"this is a server").await?;
             t.flush().await?;
 
@@ -198,7 +199,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
 
             t.write_all(b"this is a client").await?;
             t.flush().await?;
@@ -219,15 +220,15 @@ mod tests {
     #[tokio::test]
     async fn ratcheting() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let mut initiator = Initiator::new(OsRng, PrivateKey::random(OsRng));
+        let mut initiator = Initiator::new(PrivateKey::random(OsRng));
         let acceptor_key = PrivateKey::random(&mut rng);
         let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(OsRng, acceptor_key);
+        let mut acceptor = Acceptor::new(acceptor_key);
 
         let (initiator_conn, acceptor_conn) = io::duplex(64);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
+            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await?;
@@ -237,7 +238,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
 
             // This frame is sent as data.
             t.write_all(b"this is a client").await?;
@@ -264,19 +265,19 @@ mod tests {
     async fn large_transfer() -> io::Result<()> {
         let acceptor_key = PrivateKey::random(OsRng);
         let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(OsRng, acceptor_key);
+        let mut acceptor = Acceptor::new(acceptor_key);
         let initiator_key = PrivateKey::random(OsRng);
-        let mut initiator = Initiator::new(OsRng, initiator_key);
+        let mut initiator = Initiator::new(initiator_key);
         let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
 
         let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(acceptor_conn).await?;
+            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
             io::copy(&mut t, &mut io::sink()).await?;
             t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
             io::copy(&mut io::repeat(0xed).take(100 * 1024 * 1024), &mut t).await?;
             t.shutdown().await
         });

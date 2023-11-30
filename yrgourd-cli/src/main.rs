@@ -212,13 +212,13 @@ async fn proxy(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let mut initiator = Initiator::new(OsRng, client_key);
+    let mut initiator = Initiator::new(client_key);
     initiator.max_ratchet_time = max_ratchet_time;
     initiator.max_ratchet_bytes = max_ratchet_bytes;
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
-        let mut outbound = initiator.initiate_handshake(outbound, server_public_key).await?;
+        let mut outbound = initiator.initiate_handshake(OsRng, outbound, server_public_key).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -241,7 +241,7 @@ async fn reverse_proxy(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let mut acceptor = Acceptor::new(OsRng, server_key);
+    let mut acceptor = Acceptor::new(server_key);
     acceptor.max_ratchet_time = max_ratchet_time;
     acceptor.max_ratchet_bytes = max_ratchet_bytes;
 
@@ -252,7 +252,7 @@ async fn reverse_proxy(
 
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = acceptor.accept_handshake(inbound).await?;
+        let mut inbound = acceptor.accept_handshake(OsRng, inbound).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
@@ -295,7 +295,7 @@ async fn sink(
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    let mut acceptor = Acceptor::new(OsRng, server_key);
+    let mut acceptor = Acceptor::new(server_key);
     acceptor.max_ratchet_time = max_ratchet_time;
     acceptor.max_ratchet_bytes = max_ratchet_bytes;
     if !allowed_clients.is_empty() {
@@ -304,7 +304,7 @@ async fn sink(
     }
     loop {
         let (socket, _) = listener.accept().await?;
-        let mut conn = acceptor.accept_handshake(socket).await?;
+        let mut conn = acceptor.accept_handshake(OsRng, socket).await?;
         tokio::spawn(async move {
             io::copy(&mut conn, &mut io::sink()).await.expect("should copy everything");
             conn.shutdown().await.expect("should close the socket");
@@ -321,11 +321,11 @@ async fn stream(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let mut initiator = Initiator::new(OsRng, client_key);
+    let mut initiator = Initiator::new(client_key);
     initiator.max_ratchet_time = max_ratchet_time;
     initiator.max_ratchet_bytes = max_ratchet_bytes;
     let socket = TcpStream::connect(addr).await?;
-    let mut conn = initiator.initiate_handshake(socket, server_public_key).await?;
+    let mut conn = initiator.initiate_handshake(OsRng, socket, server_public_key).await?;
     io::copy(&mut io::repeat(0x4f).take(n), &mut conn).await?;
     conn.shutdown().await
 }
