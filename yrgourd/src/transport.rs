@@ -16,6 +16,7 @@ use crate::codec::Codec;
 // this pulls all the weird bits of boilerplate into a single type.
 
 pin_project! {
+    #[derive(Debug)]
     /// A Yrgourd connection. Mutually authenticated and confidential.
     pub struct Transport<S, R> {
         #[pin]
