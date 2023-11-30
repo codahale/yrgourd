@@ -128,7 +128,6 @@ where
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    #[allow(clippy::needless_lifetimes)]
     pub async fn accept_handshake<S>(&mut self, mut stream: S) -> io::Result<Transport<S, R>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
