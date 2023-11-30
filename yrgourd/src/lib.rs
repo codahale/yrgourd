@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use codec::Codec;
 use handshake::{AcceptorState, InitiatorState, REQUEST_LEN, RESPONSE_LEN};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Framed;
 
@@ -53,7 +53,7 @@ impl Initiator {
     ) -> io::Result<Transport<S, R>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
-        R: RngCore + CryptoRng,
+        R: CryptoRngCore,
     {
         // Initialize a handshake initiator state and initiate a handshake.
         let mut handshake = InitiatorState::new(&self.private_key, acceptor);
@@ -131,7 +131,7 @@ impl Acceptor {
     ) -> io::Result<Transport<S, R>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
-        R: RngCore + CryptoRng,
+        R: CryptoRngCore,
     {
         // Initialize a handshake acceptor state.
         let mut handshake = AcceptorState::new(

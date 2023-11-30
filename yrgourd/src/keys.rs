@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
@@ -92,7 +92,7 @@ impl From<Scalar> for PrivateKey {
 
 impl PrivateKey {
     /// Generate a random private key using the given RNG.
-    pub fn random(mut rng: impl RngCore + CryptoRng) -> PrivateKey {
+    pub fn random(mut rng: impl CryptoRngCore) -> PrivateKey {
         Scalar::random(&mut rng).into()
     }
 }

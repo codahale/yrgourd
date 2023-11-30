@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::{RistrettoPoint, Scalar};
 use lockstitch::Protocol;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
 
@@ -29,7 +29,7 @@ impl<'a> InitiatorState<'a> {
     }
 
     /// Initiates a handshake, returning an opaque array of bytes to be sent to the acceptor.
-    pub fn initiate(&mut self, mut rng: impl RngCore + CryptoRng) -> [u8; REQUEST_LEN] {
+    pub fn initiate(&mut self, mut rng: impl CryptoRngCore) -> [u8; REQUEST_LEN] {
         // Allocate and split a request buffer.
         let mut req = [0u8; REQUEST_LEN];
         let (ephemeral_pub, static_pub) = req.split_at_mut(PUBLIC_KEY_LEN);
@@ -150,7 +150,7 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
     /// to the initiator.
     pub fn respond(
         &mut self,
-        mut rng: impl RngCore + CryptoRng,
+        mut rng: impl CryptoRngCore,
         mut req: [u8; REQUEST_LEN],
     ) -> Option<(PublicKey, Protocol, Protocol, [u8; RESPONSE_LEN])> {
         // Split the request buffer.

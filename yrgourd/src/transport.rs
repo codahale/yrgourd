@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use tokio::io::{self, AsyncBufRead, AsyncWriteExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
@@ -27,7 +27,7 @@ pin_project! {
 impl<S, R> Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
     ///
@@ -46,7 +46,7 @@ where
 impl<S, R> Stream for Transport<S, R>
 where
     S: AsyncRead + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     type Item = Result<BytesMut, io::Error>;
 
@@ -58,7 +58,7 @@ where
 impl<S, R> Sink<Bytes> for Transport<S, R>
 where
     S: AsyncWrite + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     type Error = io::Error;
 
@@ -82,7 +82,7 @@ where
 impl<S, R> AsyncBufRead for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     fn poll_fill_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         loop {
@@ -114,7 +114,7 @@ where
 impl<S, R> AsyncRead for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -141,7 +141,7 @@ where
 impl<S, R> AsyncWrite for Transport<S, R>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     fn poll_write(
         self: Pin<&mut Self>,

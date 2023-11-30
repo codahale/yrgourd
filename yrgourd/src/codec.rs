@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use lockstitch::{Protocol, TAG_LEN};
-use rand_core::{CryptoRng, RngCore};
+use rand_core::CryptoRngCore;
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
@@ -28,7 +28,7 @@ pub struct Codec<R> {
 
 impl<R> Codec<R>
 where
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     /// Create a new [`Codec`] with the sender's private key, the receiver's public key, and the
     /// given `recv` and `send` protocols.
@@ -64,7 +64,7 @@ where
 
 impl<R> Encoder<Bytes> for Codec<R>
 where
-    R: RngCore + CryptoRng,
+    R: CryptoRngCore,
 {
     type Error = io::Error;
 
