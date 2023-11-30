@@ -114,3 +114,29 @@ impl Display for PrivateKey {
         write!(f, "{}", hex::encode(self.d.as_bytes()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuzz_public_key_from_str() {
+        bolero::check!().with_type::<String>().for_each(|s| {
+            let _ = PublicKey::from_str(s);
+        });
+    }
+
+    #[test]
+    fn fuzz_public_key_from_slice() {
+        bolero::check!().with_type::<Vec<u8>>().for_each(|s| {
+            let _ = PublicKey::try_from(s.as_ref());
+        });
+    }
+
+    #[test]
+    fn fuzz_private_key_from_str() {
+        bolero::check!().with_type::<String>().for_each(|s| {
+            let _ = PrivateKey::from_str(s);
+        });
+    }
+}
