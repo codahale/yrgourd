@@ -13,6 +13,7 @@ jobs:
             - keys::tests::fuzz_private_key_from_str
             - keys::tests::fuzz_public_key_from_slice
             - keys::tests::fuzz_public_key_from_str
+            - tests::fuzz_transport
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-C target-feature=+aes,+ssse3"
