@@ -290,6 +290,46 @@ mod tests {
     }
 
     #[test]
+    fn fuzz_handshake() {
+        let rt = Mutex::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("should have tokio/rt-multi-thread enabled"),
+        );
+        bolero::check!().with_type::<(u64, u64, Vec<u8>)>().cloned().for_each(|(s0, s1, data)| {
+            let mut rng = ChaChaRng::seed_from_u64(s0);
+            let acceptor_key = PrivateKey::random(&mut rng);
+            let mut acceptor = Acceptor::new(acceptor_key);
+            let (mut initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
+
+            let rt = rt.lock().unwrap();
+            rt.block_on(async {
+                let acceptor = tokio::spawn(async move {
+                    let rng = ChaChaRng::seed_from_u64(s1);
+                    // Don't wait for more than 100ms for the handshake to complete.
+                    let t = tokio::time::timeout(
+                        Duration::from_millis(100),
+                        acceptor.accept_handshake(rng, acceptor_conn),
+                    )
+                    .await;
+                    // Success is either a timeout or a handshake failure.
+                    assert!(t.is_err() || t.unwrap().is_err());
+                });
+
+                let initiator = tokio::spawn(async move {
+                    // Write the fuzz data directly to the underlying stream.
+                    initiator_conn.write_all(&data).await
+                });
+
+                acceptor.await?;
+                initiator.await?
+            })
+            .expect("should fuzz successfully");
+        });
+    }
+
+    #[test]
     fn fuzz_transport() {
         let rt = Mutex::new(
             tokio::runtime::Builder::new_multi_thread()
