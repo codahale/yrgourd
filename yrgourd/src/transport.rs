@@ -20,7 +20,7 @@ pin_project! {
     /// A Yrgourd connection. Mutually authenticated and confidential.
     pub struct Transport<S, R> {
         #[pin]
-        frame: Framed<S, Codec<R>>,
+        pub(crate) frame: Framed<S, Codec<R>>,
         chunk: Option<BytesMut>,
     }
 }

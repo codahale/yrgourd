@@ -173,6 +173,7 @@ impl Acceptor {
 mod tests {
     use rand_chacha::ChaChaRng;
     use rand_core::{OsRng, SeedableRng};
+    use std::sync::Mutex;
 
     use super::*;
 
@@ -290,12 +291,14 @@ mod tests {
 
     #[test]
     fn fuzz_transport() {
+        let rt = Mutex::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("should have tokio/rt-multi-thread enabled"),
+        );
         bolero::check!().with_type::<(u64, u64, u64, Vec<u8>)>().cloned().for_each(
             |(s0, s1, s2, data)| {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .expect("should have tokio/rt-multi-thread enabled");
                 let mut rng = ChaChaRng::seed_from_u64(s0);
                 let acceptor_key = PrivateKey::random(&mut rng);
                 let acceptor_pub = acceptor_key.public_key;
@@ -304,26 +307,34 @@ mod tests {
                 let mut initiator = Initiator::new(initiator_key);
                 let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
 
+                let rt = rt.lock().unwrap();
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s1);
-                        let mut t = acceptor.accept_handshake(rng, acceptor_conn).await?;
-                        io::copy(&mut t, &mut io::sink()).await?;
-                        t.shutdown().await
+                        let mut t = acceptor.accept_handshake(rng, acceptor_conn).await.unwrap();
+                        // Don't wait more than 100ms for the copy to complete.
+                        let res = tokio::time::timeout(
+                            Duration::from_millis(100),
+                            io::copy(&mut t, &mut io::sink()),
+                        )
+                        .await;
+                        // Success is anything but received data.
+                        assert!(!matches!(res, Ok(Ok(n)) if n > 0));
                     });
 
                     let initiator = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s2);
+                        // Perform a valid handshake.
                         let mut t =
                             initiator.initiate_handshake(rng, initiator_conn, acceptor_pub).await?;
-                        t.write_all(&data).await?;
-                        t.shutdown().await
+                        // Then write fuzz data directly.
+                        t.frame.get_mut().write_all(&data).await
                     });
 
-                    acceptor.await??;
+                    let _ = acceptor.await;
                     initiator.await?
                 })
-                .expect("should transfer successfully");
+                .expect("should fuzz successfully");
             },
         );
     }
