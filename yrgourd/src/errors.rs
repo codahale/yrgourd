@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// An error returned when parsing a public key was unsuccessful.
+/// Errors which can occur while parsing a public key.
 #[derive(Clone, Copy, Debug, Error, PartialEq)]
 pub enum ParsePublicKeyError {
     /// Parsing failed because the value was not a valid public key.
@@ -12,7 +12,7 @@ pub enum ParsePublicKeyError {
     InvalidEncoding(#[from] hex::FromHexError),
 }
 
-/// An error returned when parsing a private key was unsuccessful.
+/// Errors which can occur while parsing a private key.
 #[derive(Clone, Copy, Debug, Error, PartialEq)]
 pub enum ParsePrivateKeyError {
     /// Parsing failed because the value was not a valid private key.

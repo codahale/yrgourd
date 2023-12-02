@@ -30,8 +30,9 @@ impl<R> Codec<R>
 where
     R: CryptoRngCore,
 {
-    /// Create a new [`Codec`] with the sender's private key, the receiver's public key, and the
-    /// given `recv` and `send` protocols.
+    /// Creates a new [`Codec`] with the local party's private key, the remote party's public key,
+    /// a pair of `recv` and `send` [`Protocol`] values, the maximum time between ratchets and the
+    /// maximum number of bytes between ratchets.
     pub fn new(
         rng: R,
         local: PrivateKey,

@@ -136,7 +136,7 @@ pub struct AcceptorState<'a, 'b> {
 }
 
 impl<'a, 'b> AcceptorState<'a, 'b> {
-    /// Create a new [`Acceptor`] with the given private key with initiators optionally restricted
+    /// Creates a new [`Acceptor`] with the given private key with initiators optionally restricted
     /// to the given set of public keys.
     pub fn new(
         private_key: &'a PrivateKey,
@@ -249,7 +249,7 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
 }
 
 /// Given an encoded commitment point `I`, a counterfactual challenge scalar `r′`, a public key `Q`,
-/// and a proof scalar `s`, return true iff `I == [s]G - [r']Q`. Compares the encoded forms of `I`
+/// and a proof scalar `s`, returns true iff `I == [s]G - [r']Q`. Compares the encoded forms of `I`
 /// and `I′` for performance and security.
 fn verify(i: &[u8], r_p: &Scalar, q: &RistrettoPoint, s: &Scalar) -> bool {
     RistrettoPoint::vartime_double_scalar_mul_basepoint(r_p, &-q, s).compress().as_bytes() == i

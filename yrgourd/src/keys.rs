@@ -91,7 +91,7 @@ impl From<Scalar> for PrivateKey {
 }
 
 impl PrivateKey {
-    /// Generate a random private key using the given RNG.
+    /// Generates a random private key using the given RNG.
     pub fn random(mut rng: impl CryptoRngCore) -> PrivateKey {
         Scalar::random(&mut rng).into()
     }

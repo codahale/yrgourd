@@ -17,7 +17,7 @@ mod handshake;
 mod keys;
 mod transport;
 
-/// The actor in a Yrgourd connection who initiates the handshake.
+/// The party in a Yrgourd connection who initiates the handshake.
 #[derive(Debug)]
 pub struct Initiator {
     private_key: PrivateKey,
@@ -29,7 +29,7 @@ pub struct Initiator {
 }
 
 impl Initiator {
-    /// Create a new [`Initiator`] with the given private key.
+    /// Creates a new [`Initiator`] with the given private key.
     pub const fn new(private_key: PrivateKey) -> Initiator {
         Initiator {
             private_key,
@@ -38,7 +38,7 @@ impl Initiator {
         }
     }
 
-    /// Initiate a handshake via the given stream. Returns a [`Transport`] over the given stream if
+    /// Initiates a handshake via the given stream. Returns a [`Transport`] over the given stream if
     /// the handshake is successful.
     ///
     /// # Errors
@@ -93,7 +93,7 @@ pub enum AllowPolicy {
     AllowedInitiators(HashSet<PublicKey>),
 }
 
-/// The actor in a Yrgourd connection who accepts a handshake.
+/// The party in a Yrgourd connection who accepts a handshake.
 #[derive(Debug)]
 pub struct Acceptor {
     private_key: PrivateKey,
@@ -107,7 +107,7 @@ pub struct Acceptor {
 }
 
 impl Acceptor {
-    /// Create a new [`Acceptor`] with the given private key.
+    /// Creates a new [`Acceptor`] with the given private key.
     pub const fn new(private_key: PrivateKey) -> Acceptor {
         Acceptor {
             private_key,
@@ -117,7 +117,7 @@ impl Acceptor {
         }
     }
 
-    /// Accept a handshake request over the given stream. Returns a [`Transport`] over the given
+    /// Accepts a handshake request over the given stream. Returns a [`Transport`] over the given
     /// stream if the handshake is successful.
     ///
     /// # Errors

@@ -30,13 +30,13 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
     R: CryptoRngCore,
 {
+    pub(crate) const fn new(frame: Framed<S, Codec<R>>) -> Transport<S, R> {
+        Transport { frame, chunk: None }
+    }
+
     /// Consumes the [`Transport`], returning its underlying I/O stream.
     pub fn into_inner(self) -> S {
         self.frame.into_inner()
-    }
-
-    pub(crate) const fn new(frame: Framed<S, Codec<R>>) -> Transport<S, R> {
-        Transport { frame, chunk: None }
     }
 }
 
