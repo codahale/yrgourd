@@ -1155,7 +1155,6 @@ dependencies = [
  "hex",
  "lockstitch",
  "pin-project-lite",
- "rand",
  "rand_chacha",
  "rand_core",
  "thiserror",
