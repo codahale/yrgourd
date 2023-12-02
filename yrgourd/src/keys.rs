@@ -104,8 +104,10 @@ impl FromStr for PrivateKey {
         let mut encoded = [0u8; PUBLIC_KEY_LEN];
         hex::decode_to_slice(s, &mut encoded)?;
 
-        let d: Option<Scalar> = Scalar::from_canonical_bytes(encoded).into();
-        d.ok_or(ParsePrivateKeyError::InvalidPrivateKey).map(Into::into)
+        Option::<Scalar>::from(Scalar::from_canonical_bytes(encoded))
+            .filter(|d| d != &Scalar::ZERO)
+            .ok_or(ParsePrivateKeyError::InvalidPrivateKey)
+            .map(Into::into)
     }
 }
 
@@ -117,26 +119,34 @@ impl Display for PrivateKey {
 
 #[cfg(test)]
 mod tests {
+    use curve25519_dalek::traits::IsIdentity;
+
     use super::*;
 
     #[test]
     fn fuzz_public_key_from_str() {
         bolero::check!().with_type::<String>().for_each(|s| {
-            let _ = PublicKey::from_str(s);
+            if let Ok(pk) = PublicKey::from_str(s) {
+                assert!(!pk.q.is_identity());
+            }
         });
     }
 
     #[test]
     fn fuzz_public_key_from_slice() {
-        bolero::check!().with_type::<Vec<u8>>().for_each(|s| {
-            let _ = PublicKey::try_from(s.as_ref());
+        bolero::check!().with_type::<Vec<u8>>().for_each(|b| {
+            if let Ok(pk) = PublicKey::try_from(b.as_ref()) {
+                assert!(!pk.q.is_identity());
+            }
         });
     }
 
     #[test]
     fn fuzz_private_key_from_str() {
         bolero::check!().with_type::<String>().for_each(|s| {
-            let _ = PrivateKey::from_str(s);
+            if let Ok(pk) = PrivateKey::from_str(s) {
+                assert_ne!(pk.d, Scalar::ZERO);
+            }
         });
     }
 }
