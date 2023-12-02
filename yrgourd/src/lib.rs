@@ -371,7 +371,7 @@ mod tests {
                         t.into_inner().write_all(&data).await
                     });
 
-                    let _ = acceptor.await;
+                    acceptor.await?;
                     initiator.await?
                 })
                 .expect("should fuzz successfully");
