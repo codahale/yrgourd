@@ -345,13 +345,13 @@ mod tests {
                 let mut acceptor = Acceptor::new(acceptor_key);
                 let initiator_key = PrivateKey::random(&mut rng);
                 let mut initiator = Initiator::new(initiator_key);
-                let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
+                let (client, server) = io::duplex(1024 * 1024);
 
                 let rt = rt.lock().unwrap();
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s1);
-                        let mut t = acceptor.accept_handshake(rng, acceptor_conn).await.unwrap();
+                        let mut t = acceptor.accept_handshake(rng, server).await.unwrap();
                         // Don't wait more than 100ms for the copy to complete.
                         let res = tokio::time::timeout(
                             Duration::from_millis(100),
@@ -365,8 +365,7 @@ mod tests {
                     let initiator = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s2);
                         // Perform a valid handshake.
-                        let t =
-                            initiator.initiate_handshake(rng, initiator_conn, acceptor_pub).await?;
+                        let t = initiator.initiate_handshake(rng, client, acceptor_pub).await?;
                         // Then write fuzz data directly.
                         t.into_inner().write_all(&data).await
                     });
