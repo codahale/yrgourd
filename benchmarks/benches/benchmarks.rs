@@ -2,7 +2,7 @@
 
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
-use tokio::io::{self, AsyncReadExt};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use yrgourd::{Acceptor, Initiator, PrivateKey};
 
 #[divan::bench]
@@ -25,12 +25,12 @@ fn handshake(bencher: divan::Bencher) {
             |(rt, mut acceptor, mut initiator, acceptor_pub, initiator_conn, acceptor_conn)| {
                 rt.block_on(async {
                     let acceptor = tokio::spawn(async move {
-                        let t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
+                        let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
                         t.shutdown().await
                     });
 
                     let initiator = tokio::spawn(async move {
-                        let t = initiator
+                        let mut t = initiator
                             .initiate_handshake(OsRng, initiator_conn, acceptor_pub)
                             .await?;
                         t.shutdown().await

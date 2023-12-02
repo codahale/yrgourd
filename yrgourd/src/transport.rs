@@ -5,7 +5,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, Stream};
 use pin_project_lite::pin_project;
 use rand_core::CryptoRngCore;
-use tokio::io::{self, AsyncBufRead, AsyncWriteExt};
+use tokio::io::{self, AsyncBufRead};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
@@ -20,7 +20,7 @@ pin_project! {
     /// A Yrgourd connection. Mutually authenticated and confidential.
     pub struct Transport<S, R> {
         #[pin]
-        pub(crate) frame: Framed<S, Codec<R>>,
+        frame: Framed<S, Codec<R>>,
         chunk: Option<BytesMut>,
     }
 }
@@ -30,13 +30,9 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
     R: CryptoRngCore,
 {
-    /// Shuts down the output stream, ensuring that the value can be dropped cleanly.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the underlying stream returns an error shutting down.
-    pub async fn shutdown(self) -> io::Result<()> {
-        self.frame.into_inner().shutdown().await
+    /// Consumes the [`Transport`], returning its underlying I/O stream.
+    pub fn into_inner(self) -> S {
+        self.frame.into_inner()
     }
 
     pub(crate) const fn new(frame: Framed<S, Codec<R>>) -> Transport<S, R> {

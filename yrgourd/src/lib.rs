@@ -365,10 +365,10 @@ mod tests {
                     let initiator = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s2);
                         // Perform a valid handshake.
-                        let mut t =
+                        let t =
                             initiator.initiate_handshake(rng, initiator_conn, acceptor_pub).await?;
                         // Then write fuzz data directly.
-                        t.frame.get_mut().write_all(&data).await
+                        t.into_inner().write_all(&data).await
                     });
 
                     let _ = acceptor.await;
