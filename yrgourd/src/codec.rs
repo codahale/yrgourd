@@ -8,7 +8,7 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
 
-/// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte little-endian length
+/// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte big-endian length
 /// prefix, then an encrypted payload, then a 16-byte authenticator tag.
 #[derive(Debug)]
 pub struct Codec<R> {
@@ -49,7 +49,7 @@ where
             recv,
             send,
             codec: LengthDelimitedCodec::builder()
-                .little_endian()
+                .big_endian()
                 .length_field_length(LENGTH_FIELD_LEN)
                 .max_frame_length(usize::MAX)
                 .new_codec(),
@@ -95,10 +95,10 @@ where
         // Reserve enough capacity for the length field and the full frame.
         dst.reserve(LENGTH_FIELD_LEN + n);
 
-        // Encode the length field as a 3-byte little endian integer and then encrypt it.
-        let mut length_field = (n as u32).to_le_bytes();
-        self.send.encrypt(b"len", &mut length_field[..LENGTH_FIELD_LEN]);
-        dst.extend_from_slice(&length_field[..LENGTH_FIELD_LEN]);
+        // Encode the length field as a 3-byte big endian integer and then encrypt it.
+        let mut buf = (n as u32).to_be_bytes();
+        self.send.encrypt(b"len", &mut buf[4 - LENGTH_FIELD_LEN..]);
+        dst.extend_from_slice(&buf[4 - LENGTH_FIELD_LEN..]);
 
         // Add the frame type, the ratchet key, the payload, and an empty tag, then seal it.
         self.buf.reserve(n);

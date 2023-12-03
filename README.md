@@ -155,8 +155,8 @@ function acceptor_finalize(yg):
 Now the initiator and acceptor each have two protocols: `yg_recv` for decrypting received packets,
 and `yg_send` for encrypting sent packets.
 
-Transport between the initiator and acceptor uses length-delimited frames with a 3-byte
-little-endian length prepended to each packet. (The length does not include these 3 bytes.)
+Transport between the initiator and acceptor uses length-delimited frames with a 3-byte big-endian
+length prepended to each packet. (The length does not include these 3 bytes.)
 
 To send a frame, the sender would perform the following:
 
