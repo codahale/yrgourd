@@ -35,8 +35,17 @@ where
     }
 
     /// Consumes the [`Transport`], returning its underlying I/O stream.
+    ///
+    /// Note that any leftover data in the internal buffer is lost.  If you additionally want access
+    /// to the internal buffer use [`into_inner_with_chunk`].
     pub fn into_inner(self) -> S {
         self.frame.into_inner()
+    }
+
+    /// Consumes the [`Transport`], returning a tuple consisting of the underlying stream and an
+    /// `Option` of the internal buffer, which is `Some` in case the buffer contains elements.
+    pub fn into_inner_with_chunk(self) -> (S, Option<BytesMut>) {
+        (self.frame.into_inner(), self.chunk)
     }
 }
 
