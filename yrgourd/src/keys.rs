@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::traits::IsIdentity;
 use curve25519_dalek::{RistrettoPoint, Scalar};
 use rand_core::CryptoRngCore;
 
@@ -22,7 +23,11 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(encoded: &[u8]) -> Result<Self, Self::Error> {
         let encoded: [u8; PUBLIC_KEY_LEN] = encoded.try_into().map_err(|_| ())?;
-        let q = CompressedRistretto::from_slice(&encoded).map_err(|_| ())?.decompress().ok_or(())?;
+        let q = CompressedRistretto::from_slice(&encoded)
+            .map_err(|_| ())?
+            .decompress()
+            .filter(|q| !q.is_identity())
+            .ok_or(())?;
         Ok(PublicKey { q, encoded })
     }
 }
@@ -119,8 +124,6 @@ impl Display for PrivateKey {
 
 #[cfg(test)]
 mod tests {
-    use curve25519_dalek::traits::IsIdentity;
-
     use super::*;
 
     #[test]
