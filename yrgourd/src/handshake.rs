@@ -85,7 +85,7 @@ impl<'a> InitiatorState<'a> {
 
     /// Finalizes a handshake given the acceptor's response. If valid, returns a `(recv, send)`
     /// pair of [`Protocol`]s for transport.
-    pub fn finalize(&mut self, mut resp: [u8; RESPONSE_LEN]) -> Option<(Protocol, Protocol)> {
+    pub fn finalize(mut self, mut resp: [u8; RESPONSE_LEN]) -> Option<(Protocol, Protocol)> {
         // Split the response into its components.
         let (ephemeral_pub, i) = resp.split_at_mut(PUBLIC_KEY_LEN);
         let (i, s) = i.split_at_mut(32);
@@ -362,7 +362,7 @@ mod tests {
         let initiator_key = PrivateKey::random(rng);
 
         bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|req| {
-            let mut initiator = InitiatorState::new(&initiator_key, initiator_key.public_key);
+            let initiator = InitiatorState::new(&initiator_key, initiator_key.public_key);
             assert!(initiator.finalize(req).is_none());
         });
     }
