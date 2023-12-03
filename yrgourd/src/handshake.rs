@@ -112,7 +112,7 @@ impl<'a> InitiatorState<'a> {
             s.try_into().expect("should be 32 bytes"),
         ))?;
 
-        // Verify the initiator's signature and early exit if invalid.
+        // Verify the acceptor's signature and early exit if invalid.
         if !verify(i, &r_p, &self.acceptor_public_key.q, &s) {
             return None;
         }
