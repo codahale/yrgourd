@@ -149,7 +149,7 @@ impl<'a, 'b> AcceptorState<'a, 'b> {
     /// public key, a `(recv, send)` pair of [`Protocol`]s for transport, and a response to be sent
     /// to the initiator.
     pub fn respond(
-        &mut self,
+        mut self,
         mut rng: impl CryptoRngCore,
         mut req: [u8; REQUEST_LEN],
     ) -> Option<(PublicKey, Protocol, Protocol, [u8; RESPONSE_LEN])> {
@@ -268,7 +268,7 @@ mod tests {
         let acceptor_key = PrivateKey::random(&mut rng);
         let initiator_key = PrivateKey::random(&mut rng);
 
-        let mut acceptor = AcceptorState::new(&acceptor_key, None);
+        let acceptor = AcceptorState::new(&acceptor_key, None);
         let mut initiator = InitiatorState::new(&initiator_key, acceptor_key.public_key);
 
         let handshake_req = initiator.initiate(&mut rng);
@@ -301,7 +301,7 @@ mod tests {
         allowed_initiators.insert(initiator_key.public_key);
 
         let mut initiator = InitiatorState::new(&initiator_key, acceptor_key.public_key);
-        let mut acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
+        let acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
         let handshake_req = initiator.initiate(&mut rng);
         let (pk, mut acceptor_recv, mut acceptor_send, handshake_resp) = acceptor
             .respond(&mut rng, handshake_req)
@@ -334,7 +334,7 @@ mod tests {
 
         let mut bad_initiator = InitiatorState::new(&bad_initiator_key, acceptor_key.public_key);
 
-        let mut acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
+        let acceptor = AcceptorState::new(&acceptor_key, Some(&allowed_initiators));
         let bad_handshake_req = bad_initiator.initiate(&mut rng);
         assert!(
             acceptor.respond(&mut rng, bad_handshake_req).is_none(),
@@ -350,7 +350,7 @@ mod tests {
         bolero::check!().with_type::<(u64, [u8; REQUEST_LEN])>().cloned().for_each(
             |(seed, req)| {
                 let mut rng = ChaChaRng::seed_from_u64(seed);
-                let mut acceptor = AcceptorState::new(&acceptor_key, None);
+                let acceptor = AcceptorState::new(&acceptor_key, None);
                 assert!(acceptor.respond(&mut rng, req).is_none());
             },
         );

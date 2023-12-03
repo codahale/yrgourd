@@ -134,7 +134,7 @@ impl Acceptor {
         R: CryptoRngCore,
     {
         // Initialize a handshake acceptor state.
-        let mut handshake = AcceptorState::new(
+        let handshake = AcceptorState::new(
             &self.private_key,
             match self.allow_policy {
                 AllowPolicy::AllInitiators => None,
