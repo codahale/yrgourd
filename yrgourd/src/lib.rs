@@ -55,7 +55,7 @@ impl Initiator {
         R: CryptoRngCore,
     {
         // Initialize a handshake initiator state and initiate a handshake.
-        let (protocol, req) = handshake::initiate(&self.private_key, &acceptor, &mut rng);
+        let (yr, req) = handshake::initiate(&self.private_key, &acceptor, &mut rng);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the acceptor.
@@ -63,8 +63,7 @@ impl Initiator {
         stream.read_exact(&mut resp).await?;
 
         // Validate the acceptor response.
-        let Some((recv, send)) = handshake::finalize(&self.private_key, &acceptor, protocol, resp)
-        else {
+        let Some((recv, send)) = handshake::finalize(&self.private_key, &acceptor, yr, resp) else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 

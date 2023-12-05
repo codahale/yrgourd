@@ -21,7 +21,7 @@ pub fn initiate(
     mut rng: impl CryptoRngCore,
 ) -> (Protocol, [u8; REQUEST_LEN]) {
     // Initialize a protocol.
-    let mut protocol = Protocol::new("yrgourd.v1");
+    let mut yr = Protocol::new("yrgourd.v1");
 
     // Allocate and split a request buffer.
     let mut req = [0u8; REQUEST_LEN];
@@ -33,46 +33,45 @@ pub fn initiate(
     let ephemeral = PrivateKey::random(&mut rng);
 
     // Mix the acceptor's static public key into the protocol.
-    protocol.mix(b"acceptor-static-pub", &acceptor.encoded);
+    yr.mix(b"acceptor-static-pub", &acceptor.encoded);
 
     // Mix the initiator's ephemeral public key into the protocol.
     ephemeral_pub.copy_from_slice(&ephemeral.public_key.encoded);
-    protocol.mix(b"initiator-ephemeral-pub", ephemeral_pub);
+    yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (acceptor.q * ephemeral.d).compress().to_bytes();
-    protocol.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
 
     // Encrypt the initiator's static public key.
     static_pub.copy_from_slice(&initiator.public_key.encoded);
-    protocol.encrypt(b"initiator-static-pub", static_pub);
+    yr.encrypt(b"initiator-static-pub", static_pub);
 
     // Calculate the static shared secret and mix it into the protocol.
     let static_shared = (acceptor.q * initiator.d).compress().to_bytes();
-    protocol.mix(b"static-shared", &static_shared);
+    yr.mix(b"static-shared", &static_shared);
 
     // Generate a hedged commitment scalar and commitment point.
-    let k = protocol.hedge(&mut rng, &[initiator.d.as_bytes()], 10_000, |clone| {
+    let k = yr.hedge(&mut rng, &[initiator.d.as_bytes()], 10_000, |clone| {
         Some(Scalar::from_bytes_mod_order_wide(&clone.derive_array(b"commitment-scalar")))
     });
     let i = RistrettoPoint::mul_base(&k);
 
     // Encode and encrypt the commitment point of the initiator's signature.
     i_enc.copy_from_slice(i.compress().as_bytes());
-    protocol.encrypt(b"initiator-commitment-point", i_enc);
+    yr.encrypt(b"initiator-commitment-point", i_enc);
 
     // Derive a challenge scalar for the initiator's signature.
-    let r =
-        Scalar::from_bytes_mod_order_wide(&protocol.derive_array(b"initiator-challenge-scalar"));
+    let r = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"initiator-challenge-scalar"));
 
     // Calculate and encrypt the proof scalar for the initiator's signature.
     s_enc.copy_from_slice(((initiator.d * r) + k).as_bytes());
-    protocol.encrypt(b"initiator-proof-scalar", s_enc);
+    yr.encrypt(b"initiator-proof-scalar", s_enc);
 
     // Send the initiator's ephemeral public key, the initiator's encrypted static public key,
     // and the two signature components: the encrypted commitment point and the encrypted proof
     // scalar.
-    (protocol, req)
+    (yr, req)
 }
 
 /// Accepts a handshake given the initiator's request. If valid, returns the initiator's public key,
@@ -85,7 +84,7 @@ pub fn accept(
     mut req: [u8; REQUEST_LEN],
 ) -> Option<(PublicKey, Protocol, Protocol, [u8; RESPONSE_LEN])> {
     // Initialize a protocol.
-    let mut protocol = Protocol::new("yrgourd.v1");
+    let mut yr = Protocol::new("yrgourd.v1");
 
     // Split the request buffer.
     let (ephemeral_pub, static_pub) = req.split_at_mut(PUBLIC_KEY_LEN);
@@ -93,18 +92,18 @@ pub fn accept(
     let (i, s) = i.split_at_mut(32);
 
     // Mix the acceptor's static public key into the protocol.
-    protocol.mix(b"acceptor-static-pub", &acceptor.public_key.encoded);
+    yr.mix(b"acceptor-static-pub", &acceptor.public_key.encoded);
 
     // Mix the initiator's ephemeral public key into the protocol and parse it.
-    protocol.mix(b"initiator-ephemeral-pub", ephemeral_pub);
+    yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
     let ephemeral_pub = CompressedRistretto::from_slice(ephemeral_pub).ok()?.decompress()?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (ephemeral_pub * acceptor.d).compress().to_bytes();
-    protocol.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
 
     // Decrypt and parse the initiator's static public key.
-    protocol.decrypt(b"initiator-static-pub", static_pub);
+    yr.decrypt(b"initiator-static-pub", static_pub);
     let static_pub = PublicKey::try_from(<&[u8]>::from(static_pub)).ok()?;
 
     // If initiators are restricted, check that the initiator is in the allowed set.
@@ -114,17 +113,16 @@ pub fn accept(
 
     // Calculate the static shared secret and mix it into the protocol.
     let static_shared = (static_pub.q * acceptor.d).compress().to_bytes();
-    protocol.mix(b"static-shared", &static_shared);
+    yr.mix(b"static-shared", &static_shared);
 
     // Decrypt the initiator's encoded commitment point of the initiator's signature.
-    protocol.decrypt(b"initiator-commitment-point", i);
+    yr.decrypt(b"initiator-commitment-point", i);
 
     // Derive the counterfactual challenge scalar for the initiator's signature.
-    let r_p =
-        Scalar::from_bytes_mod_order_wide(&protocol.derive_array(b"initiator-challenge-scalar"));
+    let r_p = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"initiator-challenge-scalar"));
 
     // Decrypt and decode the proof scalar of the initiator's signature.
-    protocol.decrypt(b"initiator-proof-scalar", s);
+    yr.decrypt(b"initiator-proof-scalar", s);
     let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(
         s.try_into().expect("should be 32 bytes"),
     ))?;
@@ -144,33 +142,33 @@ pub fn accept(
 
     // Encrypt the acceptor's ephemeral public key.
     ephemeral_pub.copy_from_slice(&ephemeral.public_key.encoded);
-    protocol.encrypt(b"acceptor-ephemeral-pub", ephemeral_pub);
+    yr.encrypt(b"acceptor-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (static_pub.q * ephemeral.d).compress().to_bytes();
-    protocol.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
 
     // Generate a hedged commitment scalar and commitment point.
-    let k = protocol.hedge(&mut rng, &[acceptor.d.as_bytes()], 10_000, |clone| {
+    let k = yr.hedge(&mut rng, &[acceptor.d.as_bytes()], 10_000, |clone| {
         Some(Scalar::from_bytes_mod_order_wide(&clone.derive_array(b"commitment-scalar")))
     });
     let i = RistrettoPoint::mul_base(&k);
 
     // Encode and encrypt the commitment point of the acceptor's signature.
     i_enc.copy_from_slice(i.compress().as_bytes());
-    protocol.encrypt(b"acceptor-commitment-point", i_enc);
+    yr.encrypt(b"acceptor-commitment-point", i_enc);
 
     // Derive a challenge scalar for the acceptor's signature.
-    let r = Scalar::from_bytes_mod_order_wide(&protocol.derive_array(b"acceptor-challenge-scalar"));
+    let r = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"acceptor-challenge-scalar"));
 
     // Calculate and encrypt the proof scalar for the acceptor's signature.
     s_enc.copy_from_slice(((acceptor.d * r) + k).as_bytes());
-    protocol.encrypt(b"acceptor-proof-scalar", s_enc);
+    yr.encrypt(b"acceptor-proof-scalar", s_enc);
 
     // Fork the protocol into recv and send clones.
-    let mut recv = protocol.clone();
+    let mut recv = yr.clone();
     recv.mix(b"sender", b"initiator");
-    let mut send = protocol.clone();
+    let mut send = yr.clone();
     send.mix(b"sender", b"acceptor");
 
     // Return the initiator's public key, recv and send protocols, and a response to the
@@ -183,7 +181,7 @@ pub fn accept(
 pub fn finalize(
     initiator: &PrivateKey,
     acceptor: &PublicKey,
-    mut protocol: Protocol,
+    mut yr: Protocol,
     mut resp: [u8; RESPONSE_LEN],
 ) -> Option<(Protocol, Protocol)> {
     // Split the response into its components.
@@ -191,22 +189,21 @@ pub fn finalize(
     let (i, s) = i.split_at_mut(32);
 
     // Decrypt the acceptor's ephemeral public key.
-    protocol.decrypt(b"acceptor-ephemeral-pub", ephemeral_pub);
+    yr.decrypt(b"acceptor-ephemeral-pub", ephemeral_pub);
     let ephemeral_pub = PublicKey::try_from(<&[u8]>::from(ephemeral_pub)).ok()?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (initiator.d * ephemeral_pub.q).compress().to_bytes();
-    protocol.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"acceptor-ephemeral-shared", &ephemeral_shared);
 
     // Decrypt the initiator's encoded commitment point of the acceptor's signature.
-    protocol.decrypt(b"acceptor-commitment-point", i);
+    yr.decrypt(b"acceptor-commitment-point", i);
 
     // Derive the counterfactual challenge scalar for the acceptor's signature.
-    let r_p =
-        Scalar::from_bytes_mod_order_wide(&protocol.derive_array(b"acceptor-challenge-scalar"));
+    let r_p = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"acceptor-challenge-scalar"));
 
     // Decrypt and decode the proof scalar of the acceptor's signature.
-    protocol.decrypt(b"acceptor-proof-scalar", s);
+    yr.decrypt(b"acceptor-proof-scalar", s);
     let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(
         s.try_into().expect("should be 32 bytes"),
     ))?;
@@ -217,9 +214,9 @@ pub fn finalize(
     }
 
     // Fork the protocol into recv and send clones.
-    let mut recv = protocol.clone();
+    let mut recv = yr.clone();
     recv.mix(b"sender", b"acceptor");
-    let mut send = protocol;
+    let mut send = yr;
     send.mix(b"sender", b"initiator");
 
     Some((recv, send))
@@ -245,7 +242,7 @@ mod tests {
         let acceptor = PrivateKey::random(&mut rng);
         let initiator = PrivateKey::random(&mut rng);
 
-        let (initiator_prot, req) = initiate(&initiator, &acceptor.public_key, &mut rng);
+        let (yr, req) = initiate(&initiator, &acceptor.public_key, &mut rng);
 
         let (pk, mut acceptor_recv, mut acceptor_send, resp) =
             accept(&acceptor, None, &mut rng, req)
@@ -253,7 +250,7 @@ mod tests {
         assert_eq!(initiator.public_key, pk);
 
         let (mut initiator_recv, mut initiator_send) =
-            finalize(&initiator, &acceptor.public_key, initiator_prot, resp)
+            finalize(&initiator, &acceptor.public_key, yr, resp)
                 .expect("should handle acceptor response successfully");
 
         assert_eq!(
@@ -275,14 +272,14 @@ mod tests {
         let mut allowed_initiators = HashSet::new();
         allowed_initiators.insert(initiator.public_key);
 
-        let (initiator_prot, req) = initiate(&initiator, &acceptor.public_key, &mut rng);
+        let (yr, req) = initiate(&initiator, &acceptor.public_key, &mut rng);
         let (pk, mut acceptor_recv, mut acceptor_send, resp) =
             accept(&acceptor, Some(&allowed_initiators), &mut rng, req)
                 .expect("should handle initiator request successfully");
         assert_eq!(initiator.public_key, pk);
 
         let (mut initiator_recv, mut initiator_send) =
-            finalize(&initiator, &acceptor.public_key, initiator_prot, resp)
+            finalize(&initiator, &acceptor.public_key, yr, resp)
                 .expect("should handle acceptor response successfully");
 
         assert_eq!(
@@ -331,10 +328,10 @@ mod tests {
         let acceptor = PrivateKey::random(&mut rng);
         let initiator = PrivateKey::random(&mut rng);
 
-        let (protocol, _) = initiate(&initiator, &acceptor.public_key, &mut rng);
+        let (yr, _) = initiate(&initiator, &acceptor.public_key, &mut rng);
 
         bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|resp| {
-            assert!(finalize(&initiator, &acceptor.public_key, protocol.clone(), resp).is_none());
+            assert!(finalize(&initiator, &acceptor.public_key, yr.clone(), resp).is_none());
         });
     }
 }
