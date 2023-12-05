@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use codec::Codec;
-use handshake::{AcceptorState, InitiatorState, REQUEST_LEN, RESPONSE_LEN};
 use rand_core::CryptoRngCore;
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Framed;
@@ -56,16 +55,16 @@ impl Initiator {
         R: CryptoRngCore,
     {
         // Initialize a handshake initiator state and initiate a handshake.
-        let mut handshake = InitiatorState::new(&self.private_key, acceptor);
-        let req = handshake.initiate(&mut rng);
+        let (protocol, req) = handshake::initiate(&self.private_key, &acceptor, &mut rng);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the acceptor.
-        let mut resp = [0u8; RESPONSE_LEN];
+        let mut resp = [0u8; handshake::RESPONSE_LEN];
         stream.read_exact(&mut resp).await?;
 
         // Validate the acceptor response.
-        let Some((recv, send)) = handshake.finalize(resp) else {
+        let Some((recv, send)) = handshake::finalize(&self.private_key, &acceptor, protocol, resp)
+        else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
@@ -91,6 +90,15 @@ pub enum AllowPolicy {
     AllInitiators,
     /// Accept handshakes only from initiators in the given set.
     AllowedInitiators(HashSet<PublicKey>),
+}
+
+impl AllowPolicy {
+    const fn keys(&self) -> Option<&HashSet<PublicKey>> {
+        match self {
+            AllowPolicy::AllInitiators => None,
+            AllowPolicy::AllowedInitiators(ref keys) => Some(keys),
+        }
+    }
 }
 
 /// The party in a Yrgourd connection who accepts a handshake.
@@ -133,23 +141,14 @@ impl Acceptor {
         S: AsyncRead + AsyncWrite + Unpin,
         R: CryptoRngCore,
     {
-        // Initialize a handshake acceptor state.
-        let handshake = AcceptorState::new(
-            &self.private_key,
-            match self.allow_policy {
-                AllowPolicy::AllInitiators => None,
-                AllowPolicy::AllowedInitiators(ref keys) => Some(keys),
-            },
-        );
-
-        // Read and parse the handshake request from the initiator.
-        let mut request = [0u8; REQUEST_LEN];
-        stream.read_exact(&mut request).await?;
+        // Read the handshake request from the initiator.
+        let mut req = [0u8; handshake::REQUEST_LEN];
+        stream.read_exact(&mut req).await?;
 
         // Process the handshake and generate a response.
-        let (pk, recv, send, resp) = handshake
-            .respond(&mut rng, request)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+        let (pk, recv, send, resp) =
+            handshake::accept(&self.private_key, self.allow_policy.keys(), &mut rng, req)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
         stream.write_all(&resp).await?;
