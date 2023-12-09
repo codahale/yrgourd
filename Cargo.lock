@@ -350,6 +350,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -544,6 +545,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hkdf"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791a029f6b9fc27657f6f188ec6e5e43f6911f6f878e0dc5501396e09809d437"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -594,6 +613,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce3d3d1cda1db6c95eeb643ba06ab6b00062e251a93e18f58493afc2b15e93fc"
 dependencies = [
  "cmov",
+ "rand_core",
+ "sha2",
+]
+
+[[package]]
+name = "lockstitch"
+version = "0.17.1"
+source = "git+https://github.com/codahale/lockstitch#e7515d04519215e8d35f7ff33fce86ab20cf7cdf"
+dependencies = [
+ "cmov",
+ "hkdf",
  "rand_core",
  "sha2",
 ]
@@ -1153,7 +1183,7 @@ dependencies = [
  "curve25519-dalek",
  "futures",
  "hex",
- "lockstitch",
+ "lockstitch 0.17.1 (git+https://github.com/codahale/lockstitch)",
  "pin-project-lite",
  "rand_chacha",
  "rand_core",
@@ -1170,7 +1200,7 @@ dependencies = [
  "clap",
  "futures",
  "humantime",
- "lockstitch",
+ "lockstitch 0.17.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand",
  "tokio",
  "tokio-util",
