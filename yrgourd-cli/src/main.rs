@@ -3,7 +3,7 @@ use std::time::Duration;
 use clap::Parser;
 use futures::{future, FutureExt, SinkExt, StreamExt};
 use rand::rngs::OsRng;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
 use yrgourd::{Acceptor, AllowPolicy, Initiator, PrivateKey, PublicKey};
@@ -326,7 +326,8 @@ async fn stream(
     initiator.max_ratchet_bytes = max_ratchet_bytes;
     let socket = TcpStream::connect(addr).await?;
     let mut conn = initiator.initiate_handshake(OsRng, socket, server_public_key).await?;
-    io::copy(&mut io::repeat(0x4f).take(n), &mut conn).await?;
+    io::copy_buf(&mut BufReader::with_capacity(64 * 1024, io::repeat(0x4f).take(n)), &mut conn)
+        .await?;
     conn.shutdown().await
 }
 

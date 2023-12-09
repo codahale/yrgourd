@@ -2,7 +2,7 @@
 
 use divan::counter::BytesCount;
 use rand::rngs::OsRng;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
 use yrgourd::{Acceptor, Initiator, PrivateKey};
 
 #[divan::bench]
@@ -68,7 +68,11 @@ fn transfer(bencher: divan::Bencher) {
 
                 let initiator = tokio::spawn(async move {
                     let mut t = initiator.initiate_handshake(OsRng, client, acceptor_pub).await?;
-                    io::copy(&mut io::repeat(0xed).take(LEN), &mut t).await?;
+                    io::copy_buf(
+                        &mut BufReader::with_capacity(64 * 1024, io::repeat(0xed).take(LEN)),
+                        &mut t,
+                    )
+                    .await?;
                     t.shutdown().await
                 });
 

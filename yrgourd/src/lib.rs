@@ -172,6 +172,7 @@ mod tests {
     use rand_chacha::ChaChaRng;
     use rand_core::{OsRng, SeedableRng};
     use std::sync::Mutex;
+    use tokio::io::BufReader;
 
     use super::*;
 
@@ -277,7 +278,11 @@ mod tests {
 
         let initiator = tokio::spawn(async move {
             let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
-            io::copy(&mut io::repeat(0xed).take(100 * 1024 * 1024), &mut t).await?;
+            io::copy_buf(
+                &mut BufReader::with_capacity(64 * 1024, io::repeat(0xed).take(100 * 1024 * 1024)),
+                &mut t,
+            )
+            .await?;
             t.shutdown().await
         });
 
