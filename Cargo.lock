@@ -619,8 +619,9 @@ dependencies = [
 
 [[package]]
 name = "lockstitch"
-version = "0.17.1"
-source = "git+https://github.com/codahale/lockstitch#e7515d04519215e8d35f7ff33fce86ab20cf7cdf"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "962df79b09c8384d0fcdc711610740d83bc15e13f741ef4ab8119ec55cd97741"
 dependencies = [
  "cmov",
  "hkdf",
@@ -1183,7 +1184,7 @@ dependencies = [
  "curve25519-dalek",
  "futures",
  "hex",
- "lockstitch 0.17.1 (git+https://github.com/codahale/lockstitch)",
+ "lockstitch 0.18.0",
  "pin-project-lite",
  "rand_chacha",
  "rand_core",
@@ -1200,7 +1201,7 @@ dependencies = [
  "clap",
  "futures",
  "humantime",
- "lockstitch 0.17.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lockstitch 0.17.1",
  "rand",
  "tokio",
  "tokio-util",

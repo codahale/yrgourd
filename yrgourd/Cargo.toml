@@ -9,7 +9,7 @@ bytes = "1.5.0"
 curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
 futures = "0.3.29"
 hex = "0.4.3"
-lockstitch = { git = "https://github.com/codahale/lockstitch" }
+lockstitch = "0.18.0"
 pin-project-lite = "0.2.13"
 rand_core = "0.6.4"
 thiserror = "1.0.50"
