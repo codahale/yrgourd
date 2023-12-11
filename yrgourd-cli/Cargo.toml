@@ -11,7 +11,7 @@ futures = "0.3.29"
 humantime = "2.1.0"
 lockstitch = "0.17.1"
 rand = "0.8.5"
-tokio = { version = "1.34.0", features = ["full", "tracing"] }
+tokio = { version = "1.35.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.10" }
 yrgourd = { path = "../yrgourd" }
 
