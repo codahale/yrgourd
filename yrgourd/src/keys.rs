@@ -4,6 +4,7 @@ use std::str::FromStr;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::IsIdentity;
 use curve25519_dalek::{RistrettoPoint, Scalar};
+use lockstitch::subtle::ConstantTimeEq;
 use rand_core::CryptoRngCore;
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
@@ -69,7 +70,7 @@ impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
         // Compare public keys in constant time to avoid timing attacks on initiator restriction
         // policies.
-        lockstitch::ct_eq(&self.encoded, &other.encoded)
+        self.encoded.ct_eq(&other.encoded).into()
     }
 }
 

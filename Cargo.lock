@@ -619,14 +619,14 @@ dependencies = [
 
 [[package]]
 name = "lockstitch"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "962df79b09c8384d0fcdc711610740d83bc15e13f741ef4ab8119ec55cd97741"
+checksum = "22ec6eebb581f888f7f31027d1e8ad5d902b6c4ae15458ad010170d01e05c337"
 dependencies = [
- "cmov",
  "hkdf",
  "rand_core",
  "sha2",
+ "subtle",
 ]
 
 [[package]]
@@ -1184,7 +1184,7 @@ dependencies = [
  "curve25519-dalek",
  "futures",
  "hex",
- "lockstitch 0.18.0",
+ "lockstitch 0.19.0",
  "pin-project-lite",
  "rand_chacha",
  "rand_core",
