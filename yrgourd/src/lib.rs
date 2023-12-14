@@ -1,14 +1,11 @@
-use std::collections::HashSet;
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use codec::Codec;
 use rand_core::CryptoRngCore;
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::Framed;
 
-pub use crate::errors::*;
-pub use crate::keys::*;
-pub use crate::transport::*;
+pub use crate::{errors::*, keys::*, transport::*};
 
 mod codec;
 mod errors;

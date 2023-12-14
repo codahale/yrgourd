@@ -1,9 +1,11 @@
-use std::fmt::{Debug, Display};
-use std::str::FromStr;
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
-use curve25519_dalek::ristretto::CompressedRistretto;
-use curve25519_dalek::traits::IsIdentity;
-use curve25519_dalek::{RistrettoPoint, Scalar};
+use curve25519_dalek::{
+    ristretto::CompressedRistretto, traits::IsIdentity, RistrettoPoint, Scalar,
+};
 use lockstitch::subtle::ConstantTimeEq;
 use rand_core::CryptoRngCore;
 

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use curve25519_dalek::ristretto::CompressedRistretto;
-use curve25519_dalek::{RistrettoPoint, Scalar};
+use curve25519_dalek::{ristretto::CompressedRistretto, RistrettoPoint, Scalar};
 use lockstitch::Protocol;
 use rand_core::CryptoRngCore;
 

@@ -3,8 +3,10 @@ use std::time::Duration;
 use clap::Parser;
 use futures::{future, FutureExt, SinkExt, StreamExt};
 use rand::rngs::OsRng;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream, ToSocketAddrs},
+};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
 use yrgourd::{Acceptor, AllowPolicy, Initiator, PrivateKey, PublicKey};
 
