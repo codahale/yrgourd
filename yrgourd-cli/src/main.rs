@@ -36,112 +36,112 @@ enum Command {
 
 #[derive(Debug, Parser)]
 struct EchoOpts {
-    #[clap(long, default_value = "127.0.0.1:4040")]
+    #[arg(long, default_value = "127.0.0.1:4040")]
     addr: String,
 }
 
 #[derive(Debug, Parser)]
 struct ConnectOpts {
-    #[clap(long, default_value = "127.0.0.1:6060")]
+    #[arg(long, default_value = "127.0.0.1:6060")]
     addr: String,
 }
 
 #[derive(Debug, Parser)]
 struct ProxyOpts {
-    #[clap(long, default_value = "127.0.0.1:6060")]
+    #[arg(long, default_value = "127.0.0.1:6060")]
     from: String,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
     )]
     private_key: PrivateKey,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
     )]
     server_public_key: PublicKey,
 
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "2m")]
     max_ratchet_time: Duration,
 
-    #[clap(long, default_value = "104857600")]
+    #[arg(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
 
-    #[clap(long, default_value = "127.0.0.1:5050")]
+    #[arg(long, default_value = "127.0.0.1:5050")]
     to: String,
 }
 
 #[derive(Debug, Parser)]
 struct ReverseProxyOpts {
-    #[clap(long, default_value = "127.0.0.1:5050")]
+    #[arg(long, default_value = "127.0.0.1:5050")]
     from: String,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
     )]
     private_key: PrivateKey,
 
-    #[clap(long)]
+    #[arg(long)]
     allowed_clients: Vec<PublicKey>,
 
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "2m")]
     max_ratchet_time: Duration,
 
-    #[clap(long, default_value = "104857600")]
+    #[arg(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
 
-    #[clap(long, default_value = "127.0.0.1:4040")]
+    #[arg(long, default_value = "127.0.0.1:4040")]
     to: String,
 }
 
 #[derive(Debug, Parser)]
 struct StreamOpts {
-    #[clap(long, default_value = "127.0.0.1:5050")]
+    #[arg(long, default_value = "127.0.0.1:5050")]
     addr: String,
 
-    #[clap(default_value = "104857600")]
+    #[arg(default_value = "104857600")]
     n: u64,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
     )]
     private_key: PrivateKey,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
     )]
     server_public_key: PublicKey,
 
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "2m")]
     max_ratchet_time: Duration,
 
-    #[clap(long, default_value = "104857600")]
+    #[arg(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
 }
 
 #[derive(Debug, Parser)]
 struct SinkOpts {
-    #[clap(long, default_value = "127.0.0.1:5050")]
+    #[arg(long, default_value = "127.0.0.1:5050")]
     addr: String,
 
-    #[clap(
+    #[arg(
         long,
         default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
     )]
     private_key: PrivateKey,
 
-    #[clap(long)]
+    #[arg(long)]
     allowed_clients: Vec<PublicKey>,
 
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "2m")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "2m")]
     max_ratchet_time: Duration,
 
-    #[clap(long, default_value = "104857600")]
+    #[arg(long, default_value = "104857600")]
     max_ratchet_bytes: u64,
 }
 
