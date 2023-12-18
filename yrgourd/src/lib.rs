@@ -52,7 +52,8 @@ impl Initiator {
         R: CryptoRngCore,
     {
         // Initialize a handshake initiator state and initiate a handshake.
-        let (yr, req) = handshake::initiate(&self.private_key, &responder, &mut rng);
+        let ephemeral = PrivateKey::random(&mut rng);
+        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder, &mut rng);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the responder.
@@ -143,9 +144,15 @@ impl Responder {
         stream.read_exact(&mut req).await?;
 
         // Process the handshake and generate a response.
-        let (pk, recv, send, resp) =
-            handshake::accept(&self.private_key, self.allow_policy.keys(), &mut rng, req)
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+        let ephemeral = PrivateKey::random(&mut rng);
+        let (pk, recv, send, resp) = handshake::accept(
+            &self.private_key,
+            &ephemeral,
+            self.allow_policy.keys(),
+            &mut rng,
+            req,
+        )
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
         stream.write_all(&resp).await?;
