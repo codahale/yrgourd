@@ -8,7 +8,7 @@ jobs:
     strategy:
       matrix:
         target:
-            - handshake::tests::fuzz_acceptor_respond
+            - handshake::tests::fuzz_responder_respond
             - handshake::tests::fuzz_initiator_finalize
             - keys::tests::fuzz_private_key_from_str
             - keys::tests::fuzz_public_key_from_slice

@@ -8,7 +8,7 @@ use tokio::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
 };
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use yrgourd::{Acceptor, AllowPolicy, Initiator, PrivateKey, PublicKey};
+use yrgourd::{AllowPolicy, Initiator, PrivateKey, PublicKey, Responder};
 
 #[derive(Debug, Parser)]
 struct CliOpts {
@@ -243,18 +243,18 @@ async fn reverse_proxy(
     max_ratchet_time: Duration,
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
-    let mut acceptor = Acceptor::new(server_key);
-    acceptor.max_ratchet_time = max_ratchet_time;
-    acceptor.max_ratchet_bytes = max_ratchet_bytes;
+    let mut responder = Responder::new(server_key);
+    responder.max_ratchet_time = max_ratchet_time;
+    responder.max_ratchet_bytes = max_ratchet_bytes;
 
     if !allowed_clients.is_empty() {
-        acceptor.allow_policy =
+        responder.allow_policy =
             AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
     }
 
     let listener = TcpListener::bind(from).await?;
     while let Ok((inbound, _)) = listener.accept().await {
-        let mut inbound = acceptor.accept_handshake(OsRng, inbound).await?;
+        let mut inbound = responder.accept_handshake(OsRng, inbound).await?;
         let mut outbound = TcpStream::connect(to.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
@@ -297,16 +297,16 @@ async fn sink(
     max_ratchet_bytes: u64,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    let mut acceptor = Acceptor::new(server_key);
-    acceptor.max_ratchet_time = max_ratchet_time;
-    acceptor.max_ratchet_bytes = max_ratchet_bytes;
+    let mut responder = Responder::new(server_key);
+    responder.max_ratchet_time = max_ratchet_time;
+    responder.max_ratchet_bytes = max_ratchet_bytes;
     if !allowed_clients.is_empty() {
-        acceptor.allow_policy =
+        responder.allow_policy =
             AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
     }
     loop {
         let (socket, _) = listener.accept().await?;
-        let mut conn = acceptor.accept_handshake(OsRng, socket).await?;
+        let mut conn = responder.accept_handshake(OsRng, socket).await?;
         tokio::spawn(async move {
             io::copy(&mut conn, &mut io::sink()).await.expect("should copy everything");
             conn.shutdown().await.expect("should close the socket");

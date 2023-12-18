@@ -45,22 +45,23 @@ impl Initiator {
         &mut self,
         mut rng: R,
         mut stream: S,
-        acceptor: PublicKey,
+        responder: PublicKey,
     ) -> io::Result<Transport<S, R>>
     where
         S: AsyncRead + AsyncWrite + Unpin,
         R: CryptoRngCore,
     {
         // Initialize a handshake initiator state and initiate a handshake.
-        let (yr, req) = handshake::initiate(&self.private_key, &acceptor, &mut rng);
+        let (yr, req) = handshake::initiate(&self.private_key, &responder, &mut rng);
         stream.write_all(&req).await?;
 
-        // Read and parse the handshake response from the acceptor.
+        // Read and parse the handshake response from the responder.
         let mut resp = [0u8; handshake::RESPONSE_LEN];
         stream.read_exact(&mut resp).await?;
 
-        // Validate the acceptor response.
-        let Some((recv, send)) = handshake::finalize(&self.private_key, &acceptor, yr, resp) else {
+        // Validate the responder response.
+        let Some((recv, send)) = handshake::finalize(&self.private_key, &responder, yr, resp)
+        else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
 
@@ -69,7 +70,7 @@ impl Initiator {
             Codec::new(
                 rng,
                 self.private_key.clone(),
-                acceptor,
+                responder,
                 recv,
                 send,
                 self.max_ratchet_time,
@@ -99,7 +100,7 @@ impl AllowPolicy {
 
 /// The party in a Yrgourd connection who accepts a handshake.
 #[derive(Debug)]
-pub struct Acceptor {
+pub struct Responder {
     private_key: PrivateKey,
 
     /// The maximum amount of time between protocol ratchets.
@@ -110,10 +111,10 @@ pub struct Acceptor {
     pub allow_policy: AllowPolicy,
 }
 
-impl Acceptor {
-    /// Creates a new [`Acceptor`] with the given private key.
-    pub const fn new(private_key: PrivateKey) -> Acceptor {
-        Acceptor {
+impl Responder {
+    /// Creates a new [`Responder`] with the given private key.
+    pub const fn new(private_key: PrivateKey) -> Responder {
+        Responder {
             private_key,
             max_ratchet_time: Duration::from_secs(120),
             max_ratchet_bytes: 100 * 1024 * 1024,
@@ -177,14 +178,14 @@ mod tests {
     async fn round_trip() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let mut initiator = Initiator::new(PrivateKey::random(OsRng));
-        let acceptor_key = PrivateKey::random(&mut rng);
-        let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(acceptor_key);
+        let responder_key = PrivateKey::random(&mut rng);
+        let responder_pub = responder_key.public_key;
+        let mut responder = Responder::new(responder_key);
 
-        let (initiator_conn, acceptor_conn) = io::duplex(64);
+        let (initiator_conn, responder_conn) = io::duplex(64);
 
-        let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
+        let responder = tokio::spawn(async move {
+            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
             t.write_all(b"this is a server").await?;
             t.flush().await?;
 
@@ -196,7 +197,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
 
             t.write_all(b"this is a client").await?;
             t.flush().await?;
@@ -208,7 +209,7 @@ mod tests {
             t.shutdown().await
         });
 
-        acceptor.await??;
+        responder.await??;
         initiator.await??;
 
         Ok(())
@@ -218,14 +219,14 @@ mod tests {
     async fn ratcheting() -> io::Result<()> {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let mut initiator = Initiator::new(PrivateKey::random(OsRng));
-        let acceptor_key = PrivateKey::random(&mut rng);
-        let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(acceptor_key);
+        let responder_key = PrivateKey::random(&mut rng);
+        let responder_pub = responder_key.public_key;
+        let mut responder = Responder::new(responder_key);
 
-        let (initiator_conn, acceptor_conn) = io::duplex(64);
+        let (initiator_conn, responder_conn) = io::duplex(64);
 
-        let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
+        let responder = tokio::spawn(async move {
+            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await?;
@@ -235,7 +236,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
 
             // This frame is sent as data.
             t.write_all(b"this is a client").await?;
@@ -252,7 +253,7 @@ mod tests {
             t.shutdown().await
         });
 
-        acceptor.await??;
+        responder.await??;
         initiator.await??;
 
         Ok(())
@@ -260,21 +261,21 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn large_transfer() -> io::Result<()> {
-        let acceptor_key = PrivateKey::random(OsRng);
-        let acceptor_pub = acceptor_key.public_key;
-        let mut acceptor = Acceptor::new(acceptor_key);
+        let responder_key = PrivateKey::random(OsRng);
+        let responder_pub = responder_key.public_key;
+        let mut responder = Responder::new(responder_key);
         let initiator_key = PrivateKey::random(OsRng);
         let mut initiator = Initiator::new(initiator_key);
-        let (initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
+        let (initiator_conn, responder_conn) = io::duplex(1024 * 1024);
 
-        let acceptor = tokio::spawn(async move {
-            let mut t = acceptor.accept_handshake(OsRng, acceptor_conn).await?;
+        let responder = tokio::spawn(async move {
+            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
             io::copy(&mut t, &mut io::sink()).await?;
             t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, acceptor_pub).await?;
+            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
             io::copy_buf(
                 &mut BufReader::with_capacity(64 * 1024, io::repeat(0xed).take(100 * 1024 * 1024)),
                 &mut t,
@@ -283,7 +284,7 @@ mod tests {
             t.shutdown().await
         });
 
-        acceptor.await??;
+        responder.await??;
         initiator.await??;
 
         Ok(())
@@ -299,18 +300,18 @@ mod tests {
         );
         bolero::check!().with_type::<(u64, u64, Vec<u8>)>().cloned().for_each(|(s0, s1, data)| {
             let mut rng = ChaChaRng::seed_from_u64(s0);
-            let acceptor_key = PrivateKey::random(&mut rng);
-            let mut acceptor = Acceptor::new(acceptor_key);
-            let (mut initiator_conn, acceptor_conn) = io::duplex(1024 * 1024);
+            let responder_key = PrivateKey::random(&mut rng);
+            let mut responder = Responder::new(responder_key);
+            let (mut initiator_conn, responder_conn) = io::duplex(1024 * 1024);
 
             let rt = rt.lock().unwrap();
             rt.block_on(async {
-                let acceptor = tokio::spawn(async move {
+                let responder = tokio::spawn(async move {
                     let rng = ChaChaRng::seed_from_u64(s1);
                     // Don't wait for more than 100ms for the handshake to complete.
                     let t = tokio::time::timeout(
                         Duration::from_millis(100),
-                        acceptor.accept_handshake(rng, acceptor_conn),
+                        responder.accept_handshake(rng, responder_conn),
                     )
                     .await;
                     // Success is either a timeout or a handshake failure.
@@ -322,7 +323,7 @@ mod tests {
                     initiator_conn.write_all(&data).await
                 });
 
-                acceptor.await?;
+                responder.await?;
                 initiator.await?
             })
             .expect("should fuzz successfully");
@@ -340,18 +341,18 @@ mod tests {
         bolero::check!().with_type::<(u64, u64, u64, Vec<u8>)>().cloned().for_each(
             |(s0, s1, s2, data)| {
                 let mut rng = ChaChaRng::seed_from_u64(s0);
-                let acceptor_key = PrivateKey::random(&mut rng);
-                let acceptor_pub = acceptor_key.public_key;
-                let mut acceptor = Acceptor::new(acceptor_key);
+                let responder_key = PrivateKey::random(&mut rng);
+                let responder_pub = responder_key.public_key;
+                let mut responder = Responder::new(responder_key);
                 let initiator_key = PrivateKey::random(&mut rng);
                 let mut initiator = Initiator::new(initiator_key);
                 let (client, server) = io::duplex(1024 * 1024);
 
                 let rt = rt.lock().unwrap();
                 rt.block_on(async {
-                    let acceptor = tokio::spawn(async move {
+                    let responder = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s1);
-                        let mut t = acceptor.accept_handshake(rng, server).await.unwrap();
+                        let mut t = responder.accept_handshake(rng, server).await.unwrap();
                         // Don't wait more than 100ms for the copy to complete.
                         let res = tokio::time::timeout(
                             Duration::from_millis(100),
@@ -365,12 +366,12 @@ mod tests {
                     let initiator = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s2);
                         // Perform a valid handshake.
-                        let t = initiator.initiate_handshake(rng, client, acceptor_pub).await?;
+                        let t = initiator.initiate_handshake(rng, client, responder_pub).await?;
                         // Then write fuzz data directly.
                         t.into_inner().write_all(&data).await
                     });
 
-                    acceptor.await?;
+                    responder.await?;
                     initiator.await?
                 })
                 .expect("should fuzz successfully");
