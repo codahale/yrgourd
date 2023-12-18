@@ -53,7 +53,7 @@ impl Initiator {
     {
         // Initialize a handshake initiator state and initiate a handshake.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder, &mut rng);
+        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the responder.
@@ -61,7 +61,8 @@ impl Initiator {
         stream.read_exact(&mut resp).await?;
 
         // Validate the responder response.
-        let Some((recv, send)) = handshake::finalize(&self.private_key, &responder, yr, resp)
+        let Some((recv, send)) =
+            handshake::finalize(&self.private_key, &ephemeral, &responder, yr, resp)
         else {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
         };
@@ -145,14 +146,9 @@ impl Responder {
 
         // Process the handshake and generate a response.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (pk, recv, send, resp) = handshake::accept(
-            &self.private_key,
-            &ephemeral,
-            self.allow_policy.keys(),
-            &mut rng,
-            req,
-        )
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+        let (pk, recv, send, resp) =
+            handshake::accept(&self.private_key, &ephemeral, self.allow_policy.keys(), req)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Send the handshake response.
         stream.write_all(&resp).await?;
