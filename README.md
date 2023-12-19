@@ -73,83 +73,65 @@ connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 Both initiator and responder have [Ristretto255][] key pairs; the initiator knows the responder's
 public key.
 
+The handshake is [FHMQV-C][] with a slight twist: the initiator's ephemeral key is broadcast in the
+clear but the protocol is then keyed with the ECDH ephemeral shared secret and all other values are
+encypted.
+
+[FHMQV-C]: https://eprint.iacr.org/2009/408.pdf
+
 The initiator initiates a handshake by generating an ephemeral key pair and executing the following:
 
 ```text
-function initiator_init(initiator, responder.pub):
-  ephemeral ← ristretto255::key_gen()                                             // Generate an ephemeral key pair.
-  yg ← init("yrgourd.v1")                                                         // Initialize a protocol with a domain string.
-  yg ← mix(yg, "responder-static-pub", responder.pub)                             // Mix the responder's public key into the protocol.
-  yg ← mix(yg, "initiator-ephemeral-pub", ephemeral.pub)                          // Mix the ephemeral public key into the protocol.
-  yg ← mix(yg, "initiator-ephemeral-shared", ecdh(responder.pub, ephemeral.priv)) // Mix the ephemeral ECDH shared secret into the protocol.
-  (yg, a) ← encrypt(yg, "initiator-static-pub", initiator.pub)                    // Encrypt the initiator's public key.
-  yg ← mix(yg, "static-shared", ecdh(responder.pub, initiator.priv))              // Mix the static ECDH shared secret into the protocol.
-  (k, I) ← ristretto255::key_gen()                                                // Generate a commitment scalar and point.
-  (yg, b) ← encrypt(yg, "initiator-commitment-point", I)                          // Encrypt the commitment point.
-  (yg, r) ← ristretto255::scalar(derive(yg, "initiator-challenge-scalar", 64))    // Derive a challenge scalar.
-  s ← initiator.priv * r + k                                                      // Calculate the proof scalar.
-  (yg, c) ← encrypt(yg, "initiator-proof-scalar", s)                              // Encrypt the proof scalar.
-  return (yg, ephemeral.pub, a, b, c)
+function initiator_init(initiator_static, initiator_ephemeral, responder_static.pub):
+  yg ← init("yrgourd.v1")
+  yg ← mix(yg, "responder-static-pub", responder_static.pub)
+  yg ← mix(yg, "initiator-ephemeral-pub", initiator_ephemeral.pub)
+  yg ← mix(yg, "ecdh-shared-secret", ecdh(responder_static.pub, initiator_ephemeral.priv))
+  (yg, x) ← encrypt(yg, "initiator-static-pub", initiator_static.pub)
+  return (yg, initiator_ephemeral.pub, x)
 ```
 
-The initiator sends the plaintext ephemeral public key, the encrypted static public key, the
-encrypted commitment point, and the encrypted proof scalar to the responder. The initiator discards
-the ephemeral private key, providing forward secrecy for the handshake.
-
-The responder executes the following:
+The initiator sends the plaintext ephemeral public key and the encrypted static public key to the
+responder. The responder executes the following:
 
 ```text
-function responder_accept(responder, ephemeral.pub, a, b, c):
-  yg ← init("yrgourd.v1")                                                         // Initialize a protocol with a domain string.
-  yg ← mix(yg, "responder-static-pub", responder.pub)                             // Mix the responder's public key into the protocol.
-  yg ← mix(yg, "initiator-ephemeral-pub", ephemeral.pub)                          // Mix the ephemeral public key into the protocol.
-  yg ← mix(yg, "initiator-ephemeral-shared", ecdh(responder.pub, ephemeral.priv)) // Mix the ephemeral ECDH shared secret into the protocol.
-  (yg, initiator.pub) ← decrypt(yg, "initiator-static-pub", a)                    // Decrypt the initiator's public key.
-  yg ← mix(yg, "static-shared", ecdh(responder.pub, initiator.priv))              // Mix the static ECDH shared secret into the protocol.
-  (yg, I) ← encrypt(yg, "initiator-commitment-point", b)                          // Decrypt the commitment point.
-  (yg, r′) ← ristretto255::scalar(derive(yg, "initiator-challenge-scalar", 64))   // Derive a counterfactual challenge scalar.
-  (yg, s) ← decrypt(yg, "initiator-proof-scalar", c)                              // Decrypt the proof scalar.
-  I′ ← [s]G - [r′]initiator.pub                                                   // Calculate the counterfactual commitment point.
-  if I ≠ I′:                                                                      // Compare the two points.
-    return ⊥                                                                      // Return an error if they're not equal.
-  ephemeral ← ristretto255::key_gen()                                             // Generate an ephemeral key pair.
-  (yg, A) ← encrypt(yg, "responder-ephemeral-pub", ephemeral.pub)                 // Encrypt the ephemeral public key.
-  yg ← mix(yg, "responder-ephemeral-shared", ecdh(initiator.pub, ephemeral.priv)) // Mix the ephemeral ECDH shared secret into the protocol.
-  (yg, I) ← encrypt(yg, "initiator-commitment-point", b)                          // Decrypt the commitment point.
-  (k, I) ← ristretto255::key_gen()                                                // Generate a commitment scalar and point.
-  (yg, B) ← encrypt(yg, "responder-commitment-point", I)                          // Encrypt the commitment point.
-  (yg, r) ← ristretto255::scalar(derive(yg, "responder-challenge-scalar", 64))    // Derive a challenge scalar.
-  s ← responder.priv * r + k                                                      // Calculate the proof scalar.
-  (yg, C) ← encrypt(yg, "responder-proof-scalar", s)                              // Encrypt the proof scalar.
-  return (yg, A, B, C)
+function responder_accept(responder_static, responder_ephemeral, initiator_ephemeral.pub, x):
+  yg ← init("yrgourd.v1")
+  yg ← mix(yg, "responder-static-pub", responder_static.pub)
+  yg ← mix(yg, "initiator-ephemeral-pub", initiator_ephemeral.pub)
+  yg ← mix(yg, "ecdh-shared-secret", ecdh(initiator_ephemeral.pub, responder_static.pub))
+  (yg, initiator_static.pub) ← decrypt(yg, "initiator-static-pub", x)
+  (yg, y) ← encrypt(yg, "responder-ephemeral-pub", responder_ephemeral.pub)
+  return (yg, y)
 ```
 
-The responder sends the encrypted commitment point and the encrypted proof scalar to the initiator.
-Finally, the responder discards the ephemeral private key, providing forward secrecy.
-
-The initiator performs the following:
+The responder sends the encrypted ephemeral public key to the initiator. The initiator performs the
+following:
 
 ```text
-function initiator_finalize(yg, initiator, responder.pub, A, B, C):
-  (yg, ephemeral.pub) ← decrypt(yg, "responder-ephemeral-pub", A)                 // Decrypt the ephemeral public key.
-  yg ← mix(yg, "responder-ephemeral-shared", ecdh(ephemeral.pub, initiator.priv)) // Mix the static ECDH shared secret into the protocol.
-  (yg, I) ← decrypt(yg, "responder-commitment-point", B)                          // Decrypt the commitment point.
-  (yg, r′) ← ristretto255::scalar(derive(yg, "responder-challenge-scalar", 64))   // Derive a challenge scalar.
-  (yg, s) ← encrypt(yg, "responder-proof-scalar", C)                              // Decrypt the proof scalar.
-  I′ ← [s]G - [r′]responder.pub                                                   // Calculate the counterfactual commitment point.
-  if I ≠ I′:                                                                      // Compare the two points.
-    return ⊥                                                                      // Return an error if they're not equal.
-  yg_recv ← mix(yg, "sender", "responder")                                        // Clone a receive-specific protocol for transport.
-  yg_send ← mix(yg, "sender", "initiator")                                        // Clone a send-specific protocol for transport.
+function initiator_finalize(yg, initiator_static, initiator_ephemeral, responder_static.pub, y):
+  (yg, responder_ephemeral.pub) ← decrypt(yg, "responder-ephemeral-pub", y)
+  (yg, d) ← ristretto255::scalar(derive(yg, "scalar-d", 64))
+  (yg, e) ← ristretto255::scalar(derive(yg, "scalar-e", 64))
+  s_a ← initiator_ephemeral + d * initiator_static;
+  k ← (responder_ephemeral.pub + (responder_static.pub * e)) * s_a;
+  yg ← mix("shared-secret", k)
+  yg_recv ← mix(yg, "sender", "responder")
+  yg_send ← mix(yg, "sender", "initiator")
   return (yg_recv, yg_send)
 ```
 
 The responder also performs the following:
 
 ```text
-function responder_finalize(yg):
-  yg_recv ← mix(yg, "sender", "initiator") // Clone a receive-specific protocol for transport.
-  yg_send ← mix(yg, "sender", "responder") // Clone a send-specific protocol for transport.
+function responder_finalize(yg, responder_static, responder_ephemeral, initiator_static.pub, initiator_ephemeral.pub):
+  (yg, d) ← ristretto255::scalar(derive(yg, "scalar-d", 64))
+  (yg, e) ← ristretto255::scalar(derive(yg, "scalar-e", 64))
+  s_b ← responder_ephemeral + e * responder_static;
+  k ← (initiator_ephemeral.pub + (initiator_static.pub * d)) * s_b;
+  yg ← mix("shared-secret", k)
+  yg_recv ← mix(yg, "sender", "initiator")
+  yg_send ← mix(yg, "sender", "responder")
   return (yg_recv, yg_send)
 ```
 
@@ -200,19 +182,19 @@ On my M2 MacBook Air:
 ```text
 Timer precision: 41.66 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  371.9 µs      │ 3.438 ms      │ 404.8 µs      │ 421.6 µs      │ 1872    │ 1872
-╰─ transfer   21.98 ms      │ 23.84 ms      │ 22.47 ms      │ 22.56 ms      │ 100     │ 100
-              4.442 GiB/s   │ 4.094 GiB/s   │ 4.345 GiB/s   │ 4.326 GiB/s   │         │
+├─ handshake  281.4 µs      │ 503.2 µs      │ 320.1 µs      │ 323.6 µs      │ 3090    │ 3090
+╰─ transfer   21.9 ms       │ 29.04 ms      │ 22.59 ms      │ 23.14 ms      │ 100     │ 100
+              4.458 GiB/s   │ 3.362 GiB/s   │ 4.321 GiB/s   │ 4.22 GiB/s    │         │
 ```
 
 On a GCP `c3-standard-4`:
 
 ```text
-Timer precision: 25.18 ns
+Timer precision: 24.44 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  521.1 µs      │ 682.7 µs      │ 569.4 µs      │ 573.1 µs      │ 1442    │ 1442
-╰─ transfer   34.66 ms      │ 42.14 ms      │ 37.4 ms       │ 37.45 ms      │ 100     │ 100
-              2.817 GiB/s   │ 2.317 GiB/s   │ 2.611 GiB/s   │ 2.607 GiB/s   │         │
+├─ handshake  374.5 µs      │ 638.3 µs      │ 415.6 µs      │ 420 µs        │ 2381    │ 2381
+╰─ transfer   34.69 ms      │ 40.73 ms      │ 38.16 ms      │ 37.68 ms      │ 100     │ 100
+              2.815 GiB/s   │ 2.397 GiB/s   │ 2.558 GiB/s   │ 2.591 GiB/s   │         │
 ```
 
 `handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
