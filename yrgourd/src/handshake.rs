@@ -118,6 +118,7 @@ pub fn finalize(
     yr.decrypt(b"responder-ephemeral-pub", &mut resp);
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(&resp)).ok()?;
 
+    // Calculate and mix in the shared secret.
     let d = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"scalar-d"));
     let e = Scalar::from_bytes_mod_order_wide(&yr.derive_array(b"scalar-e"));
     let s_a = initiator_ephemeral.d + d * initiator_static.d;
