@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use curve25519_dalek::{ristretto::CompressedRistretto, Scalar};
+use crrl::gls254::{Point, Scalar};
 use lockstitch::Protocol;
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
@@ -33,7 +33,7 @@ pub fn initiate(
     yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (responder.q * initiator_ephemeral.d).compress().to_bytes();
+    let ephemeral_shared = (responder.q * initiator_ephemeral.d).encode();
     yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Encrypt the initiator's static public key.
@@ -64,11 +64,10 @@ pub fn accept(
 
     // Mix the initiator's ephemeral public key into the protocol and parse it.
     yr.mix(b"initiator-ephemeral-pub", initiator_ephemeral);
-    let initiator_ephemeral =
-        CompressedRistretto::from_slice(initiator_ephemeral).ok()?.decompress()?;
+    let initiator_ephemeral = Point::decode(initiator_ephemeral)?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (initiator_ephemeral * responder_static.d).compress().to_bytes();
+    let ephemeral_shared = (initiator_ephemeral * responder_static.d).encode();
     yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Decrypt and parse the initiator's static public key.
@@ -88,11 +87,11 @@ pub fn accept(
     yr.encrypt(b"responder-ephemeral-pub", &mut resp);
 
     // Calculate and mix in the shared secret.
-    let d = Scalar::from(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
-    let e = Scalar::from(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
     let s_b = responder_ephemeral.d + e * responder_static.d;
     let k = (initiator_ephemeral + (initiator_static.q * d)) * s_b;
-    yr.mix(b"shared-secret", k.compress().as_bytes());
+    yr.mix(b"shared-secret", &k.encode());
 
     // Fork the protocol into recv and send clones.
     let mut recv = yr.clone();
@@ -119,11 +118,11 @@ pub fn finalize(
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(&resp)).ok()?;
 
     // Calculate and mix in the shared secret.
-    let d = Scalar::from(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
-    let e = Scalar::from(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
     let s_a = initiator_ephemeral.d + d * initiator_static.d;
     let k = (responder_ephemeral.q + (responder_static.q * e)) * s_a;
-    yr.mix(b"shared-secret", k.compress().as_bytes());
+    yr.mix(b"shared-secret", &k.encode());
 
     // Fork the protocol into recv and send clones.
     let mut recv = yr.clone();

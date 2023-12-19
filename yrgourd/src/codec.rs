@@ -116,7 +116,7 @@ where
 
         // Ratchet the protocol state, if needed.
         if let Some(ratchet) = ratchet {
-            self.send.mix(b"ratchet-shared", (ratchet.d * self.remote.q).compress().as_bytes());
+            self.send.mix(b"ratchet-shared", &(ratchet.d * self.remote.q).encode());
         }
 
         Ok(())
@@ -167,7 +167,7 @@ impl<R> Decoder for Codec<R> {
                     io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key")
                 })?;
                 // Mix the ratchet shared secret into the recv protocol.
-                self.recv.mix(b"ratchet-shared", (self.local.d * rk.q).compress().as_bytes());
+                self.recv.mix(b"ratchet-shared", &(self.local.d * rk.q).encode());
                 // Return the frame's payload.
                 Ok(Some(data))
             }

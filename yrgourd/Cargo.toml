@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 bytes = "1.5.0"
-curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
+crrl = { version = "0.8.0", default-features = false, features = ["gls254", "std"] }
 futures = "0.3.29"
 hex = "0.4.3"
 lockstitch = "0.20.0"

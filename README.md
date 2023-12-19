@@ -16,7 +16,7 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 
 ## Things It Does
 
-* Uses [Ristretto255][] for asymmetric operations and SHA-256/[AEGIS-128L][] for symmetric
+* Uses [GLS254][] for asymmetric operations and SHA-256/[AEGIS-128L][] for symmetric
   operations.
 * Capable of >10 Gb/sec throughput.
 * Everything but the first 32 bytes of a connection is encrypted.
@@ -25,7 +25,7 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 * Responders can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
 
-[Ristretto255]: https://www.ietf.org/archive/id/draft-irtf-cfrg-ristretto255-decaf448-08.html
+[GLS254]: https://eprint.iacr.org/2023/1688
 [AEGIS-128L]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aegis-aead-06.html
 
 ## Demo
@@ -69,8 +69,8 @@ connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 
 ## Design
 
-Both initiator and responder have [Ristretto255][] key pairs; the initiator knows the responder's
-public key.
+Both initiator and responder have [GLS254][] key pairs; the initiator knows the responder's public
+key.
 
 The handshake is [FHMQV-C][] with a slight twist: the initiator's ephemeral key is broadcast in the
 clear but the protocol is then keyed with the ECDH ephemeral shared secret and all other values are
@@ -110,8 +110,8 @@ following:
 ```text
 function initiator_finalize(yg, initiator_static, initiator_ephemeral, responder_static.pub, y):
   (yg, responder_ephemeral.pub) ← decrypt(yg, "responder-ephemeral-pub", y)
-  (yg, d) ← ristretto255::scalar(derive(yg, "scalar-d", 16))
-  (yg, e) ← ristretto255::scalar(derive(yg, "scalar-e", 16))
+  (yg, d) ← gls254::scalar(derive(yg, "scalar-d", 16))
+  (yg, e) ← gls254::scalar(derive(yg, "scalar-e", 16))
   s_a ← initiator_ephemeral + d * initiator_static;
   k ← (responder_ephemeral.pub + (responder_static.pub * e)) * s_a;
   yg ← mix("shared-secret", k)
@@ -124,8 +124,8 @@ The responder also performs the following:
 
 ```text
 function responder_finalize(yg, responder_static, responder_ephemeral, initiator_static.pub, initiator_ephemeral.pub):
-  (yg, d) ← ristretto255::scalar(derive(yg, "scalar-d", 16))
-  (yg, e) ← ristretto255::scalar(derive(yg, "scalar-e", 16))
+  (yg, d) ← gls254::scalar(derive(yg, "scalar-d", 16))
+  (yg, e) ← gls254::scalar(derive(yg, "scalar-e", 16))
   s_b ← responder_ephemeral + e * responder_static;
   k ← (initiator_ephemeral.pub + (initiator_static.pub * d)) * s_b;
   yg ← mix("shared-secret", k)
@@ -161,8 +161,8 @@ The initiator's `yg_send` and the responder's `yg_recv` stay synchronized, likew
 initiator's `yg_recv` and the responder's `yg_send`.
 
 Each frame begins with a frame type. A frame which begins with a `1` contains only data. A frame
-with a `2` contains a Ristretto255 public key prepended to the data for ratcheting. To initiate a
-ratchet, the transport sends a `2` frame and then performs the following:
+with a `2` contains a GLS254 public key prepended to the data for ratcheting. To initiate a ratchet,
+the transport sends a `2` frame and then performs the following:
 
 ```text
 yg_send ← mix(yg_send, "ratchet-shared", ecdh(remote.pub, ratchet.priv))
