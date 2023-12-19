@@ -20,8 +20,7 @@ In addition, there is absolutely no guarantee of backwards compatibility.
   operations.
 * Capable of >10 Gb/sec throughput.
 * Everything but the first 32 bytes of a connection is encrypted.
-* Handshakes are both sender and receiver forward-secure.
-* Handshakes are authenticated via Schnorr signatures from both initiator and responder.
+* Handshakes use FHMQV-C to authenticate both sender and receiver with forward security for both.
 * Uses ephemeral keys to ratchet the connection state every `N` seconds or `M` bytes.
 * Responders can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
@@ -136,7 +135,8 @@ function responder_finalize(yg, responder_static, responder_ephemeral, initiator
 ```
 
 Now the initiator and responder each have two protocols: `yg_recv` for decrypting received packets,
-and `yg_send` for encrypting sent packets.
+and `yg_send` for encrypting sent packets. The initiator and responder discard their ephemeral keys,
+ensuring forward secrecy for both parties.
 
 Transport between the initiator and responder uses length-delimited frames with a 3-byte big-endian
 length prepended to each packet. (The length does not include these 3 bytes.)
@@ -147,6 +147,8 @@ To send a frame, the sender would perform the following:
 (yg_send, len) ← encrypt(yg_send, "len", u24_le(|frame|))
 (yg_send, frame) ← seal(yg_send, "frame", frame)
 ```
+
+ The tag of the first frame in either direction serves to confirm key agreement.
 
 To receive a packet, the receiver would perform the following:
 
