@@ -87,8 +87,8 @@ pub fn accept(
     yr.encrypt(b"responder-ephemeral-pub", &mut resp);
 
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
-    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
     let y = responder_ephemeral.d;
     let b = responder_static.d;
     let g_x = initiator_ephemeral;
@@ -120,8 +120,8 @@ pub fn finalize(
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(&resp)).ok()?;
 
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
-    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
     let g_y = responder_ephemeral.q;
     let g_b = responder_static.q;
     let x = initiator_ephemeral.d;

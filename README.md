@@ -110,8 +110,8 @@ following:
 ```text
 function initiator_finalize(yg, initiator_static, initiator_ephemeral, responder_static.pub, y):
   (yg, responder_ephemeral.pub) ← decrypt(yg, "responder-ephemeral-pub", y)
-  (yg, d) ← gls254::scalar(derive(yg, "scalar-d", 16))
-  (yg, e) ← gls254::scalar(derive(yg, "scalar-e", 16))
+  (yg, d) ← gls254::scalar(derive(yg, "challenge-scalar-d", 16))
+  (yg, e) ← gls254::scalar(derive(yg, "challenge-scalar-e", 16))
   s_a ← initiator_ephemeral + d * initiator_static;
   k ← (responder_ephemeral.pub + (responder_static.pub * e)) * s_a;
   yg ← mix("shared-secret", k)
@@ -124,8 +124,8 @@ The responder also performs the following:
 
 ```text
 function responder_finalize(yg, responder_static, responder_ephemeral, initiator_static.pub, initiator_ephemeral.pub):
-  (yg, d) ← gls254::scalar(derive(yg, "scalar-d", 16))
-  (yg, e) ← gls254::scalar(derive(yg, "scalar-e", 16))
+  (yg, d) ← gls254::scalar(derive(yg, "challenge-scalar-d", 16))
+  (yg, e) ← gls254::scalar(derive(yg, "challenge-scalar-e", 16))
   s_b ← responder_ephemeral + e * responder_static;
   k ← (initiator_ephemeral.pub + (initiator_static.pub * d)) * s_b;
   yg ← mix("shared-secret", k)
