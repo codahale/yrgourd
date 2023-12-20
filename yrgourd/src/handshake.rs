@@ -92,8 +92,8 @@ pub fn accept(
     let y = responder_ephemeral.d;
     let b = responder_static.d;
     let g_x = initiator_ephemeral;
-    let g_y = initiator_static.q;
-    let sigma = (g_x + (g_y * d)) * (y + e * b);
+    let g_a = initiator_static.q;
+    let sigma = (g_x + (g_a * d)) * (y + e * b);
     yr.mix(b"shared-secret", &sigma.encode());
 
     // Fork the protocol into recv and send clones.
