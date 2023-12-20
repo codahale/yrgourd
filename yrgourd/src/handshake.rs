@@ -87,14 +87,15 @@ pub fn accept(
     yr.encrypt(b"responder-ephemeral-pub", &mut resp);
 
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
-    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let y = responder_ephemeral.d;
-    let b = responder_static.d;
-    let g_x = initiator_ephemeral;
-    let g_a = initiator_static.q;
-    let sigma = (g_x + (g_a * d)) * (y + e * b);
-    yr.mix(b"shared-secret", &sigma.encode());
+    let shared_secret = fhmqv_resp(
+        &initiator_static.q,
+        &initiator_ephemeral,
+        &responder_static.d,
+        &responder_ephemeral.d,
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
+    );
+    yr.mix(b"shared-secret", &shared_secret.encode());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
@@ -120,14 +121,15 @@ pub fn finalize(
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(&resp)).ok()?;
 
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
-    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let g_y = responder_ephemeral.q;
-    let g_b = responder_static.q;
-    let x = initiator_ephemeral.d;
-    let a = initiator_static.d;
-    let sigma = (g_y + (g_b * e)) * (x + d * a);
-    yr.mix(b"shared-secret", &sigma.encode());
+    let shared_secret = fhmqv_init(
+        &responder_static.q,
+        &responder_ephemeral.q,
+        &initiator_static.d,
+        &initiator_ephemeral.d,
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
+    );
+    yr.mix(b"shared-secret", &shared_secret.encode());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
@@ -135,6 +137,16 @@ pub fn finalize(
     send.mix(b"sender", b"initiator");
 
     Some((recv, send))
+}
+
+#[inline]
+fn fhmqv_init(g_b: &Point, g_y: &Point, a: &Scalar, x: &Scalar, d: Scalar, e: Scalar) -> Point {
+    (g_y + (g_b * e)) * (x + d * a)
+}
+
+#[inline]
+fn fhmqv_resp(g_a: &Point, g_x: &Point, b: &Scalar, y: &Scalar, d: Scalar, e: Scalar) -> Point {
+    (g_x + (g_a * d)) * (y + e * b)
 }
 
 #[cfg(test)]
