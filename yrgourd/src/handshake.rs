@@ -245,20 +245,39 @@ mod tests {
     fn fuzz_initiator_finalize() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let responder_static = PrivateKey::random(&mut rng);
+        let responder_ephemeral = PrivateKey::random(&mut rng);
         let initiator_static = PrivateKey::random(&mut rng);
         let initiator_ephemeral = PrivateKey::random(&mut rng);
 
-        let (yr, _) =
+        let (yr_init, req) =
             initiate(&initiator_static, &initiator_ephemeral, &responder_static.public_key);
+        let (_, _, _, resp) = accept(&responder_static, &responder_ephemeral, None, req)
+            .expect("regular handshake should succeed");
+        let (mut init_recv, mut init_send) = finalize(
+            &initiator_static,
+            &initiator_ephemeral,
+            &responder_static.public_key,
+            yr_init.clone(),
+            resp,
+        )
+        .expect("regular handshake should succeed");
+
+        let init_recv_good = init_recv.derive_array::<8>(b"test");
+        let init_send_good = init_send.derive_array::<8>(b"test");
 
         bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|resp| {
-            let _ = finalize(
+            // the handshake will fail if the static public key doesn't decode successfully
+            if let Some((mut init_recv, mut init_send)) = finalize(
                 &initiator_static,
                 &initiator_ephemeral,
                 &responder_static.public_key,
-                yr.clone(),
+                yr_init.clone(),
                 resp,
-            );
+            ) {
+                // but key confirmation must fail even if the handshake succeeds
+                assert_ne!(init_recv_good, init_recv.derive_array::<8>(b"test"));
+                assert_ne!(init_send_good, init_send.derive_array::<8>(b"test"));
+            }
         });
     }
 }
