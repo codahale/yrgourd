@@ -237,6 +237,8 @@ mod tests {
         let responder_ephemeral = PrivateKey::random(&mut rng);
 
         bolero::check!().with_type::<[u8; REQUEST_LEN]>().cloned().for_each(|req| {
+            // It doesn't matter if the handshake is accepted, since the key confirmation happens
+            // via the first frame of data.
             let _ = accept(&responder_static, &responder_ephemeral, None, req);
         });
     }
@@ -266,7 +268,8 @@ mod tests {
         let init_send_good = init_send.derive_array::<8>(b"test");
 
         bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|resp| {
-            // the handshake will fail if the static public key doesn't decode successfully
+            // If the responder sends gibberish, the response may actually produce a valid point.
+            // That's ok, because the key confirmation happens on the first frame.
             if let Some((mut init_recv, mut init_send)) = finalize(
                 &initiator_static,
                 &initiator_ephemeral,
@@ -274,7 +277,7 @@ mod tests {
                 yr_init.clone(),
                 resp,
             ) {
-                // but key confirmation must fail even if the handshake succeeds
+                // If the responder sends gibberish, key confirmation should absolutely not succeed.
                 assert_ne!(init_recv_good, init_recv.derive_array::<8>(b"test"));
                 assert_ne!(init_send_good, init_send.derive_array::<8>(b"test"));
             }
