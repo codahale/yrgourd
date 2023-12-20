@@ -94,9 +94,8 @@ pub fn accept(
     yr.mix(b"shared-secret", &k.encode());
 
     // Fork the protocol into recv and send clones.
-    let mut recv = yr.clone();
+    let (mut recv, mut send) = (yr.clone(), yr);
     recv.mix(b"sender", b"initiator");
-    let mut send = yr.clone();
     send.mix(b"sender", b"responder");
 
     // Return the initiator's public key, recv and send protocols, and a response to the
@@ -125,9 +124,8 @@ pub fn finalize(
     yr.mix(b"shared-secret", &k.encode());
 
     // Fork the protocol into recv and send clones.
-    let mut recv = yr.clone();
+    let (mut recv, mut send) = (yr.clone(), yr);
     recv.mix(b"sender", b"responder");
-    let mut send = yr;
     send.mix(b"sender", b"initiator");
 
     Some((recv, send))
