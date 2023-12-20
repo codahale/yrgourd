@@ -86,12 +86,15 @@ pub fn accept(
     resp.copy_from_slice(&responder_ephemeral.public_key.encoded);
     yr.encrypt(b"responder-ephemeral-pub", &mut resp);
 
-    // Calculate and mix in the shared secret.
+    // Calculate and mix in the shared secret: g^((x+da)(y+eb))
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
-    let s_b = responder_ephemeral.d + e * responder_static.d;
-    let k = (initiator_ephemeral + (initiator_static.q * d)) * s_b;
-    yr.mix(b"shared-secret", &k.encode());
+    let y = responder_ephemeral.d;
+    let b = responder_static.d;
+    let g_x = initiator_ephemeral;
+    let g_y = initiator_static.q;
+    let sigma = (g_x + (g_y * d)) * (y + e * b);
+    yr.mix(b"shared-secret", &sigma.encode());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
@@ -116,12 +119,15 @@ pub fn finalize(
     yr.decrypt(b"responder-ephemeral-pub", &mut resp);
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(&resp)).ok()?;
 
-    // Calculate and mix in the shared secret.
+    // Calculate and mix in the shared secret: g^((x+da)(y+eb))
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"scalar-e")));
-    let s_a = initiator_ephemeral.d + d * initiator_static.d;
-    let k = (responder_ephemeral.q + (responder_static.q * e)) * s_a;
-    yr.mix(b"shared-secret", &k.encode());
+    let g_y = responder_ephemeral.q;
+    let g_b = responder_static.q;
+    let x = initiator_ephemeral.d;
+    let a = initiator_static.d;
+    let sigma = (g_y + (g_b * e)) * (x + d * a);
+    yr.mix(b"shared-secret", &sigma.encode());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
