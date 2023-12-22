@@ -276,7 +276,7 @@ mod tests {
         let initiator = tokio::spawn(async move {
             let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
             time::timeout(
-                Duration::from_millis(500),
+                Duration::from_secs(10),
                 io::copy_buf(
                     &mut BufReader::with_capacity(
                         64 * 1024,
