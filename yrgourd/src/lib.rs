@@ -173,7 +173,7 @@ mod tests {
     use rand_chacha::ChaChaRng;
     use rand_core::{OsRng, SeedableRng};
     use std::sync::Mutex;
-    use tokio::io::BufReader;
+    use tokio::{io::BufReader, time};
 
     use super::*;
 
@@ -206,16 +206,14 @@ mod tests {
             t.flush().await?;
 
             let mut buf = [0u8; 16];
-            t.read_exact(&mut buf).await?;
+            time::timeout(Duration::from_millis(500), t.read_exact(&mut buf)).await??;
             assert_eq!(&buf, b"this is a server");
 
             t.shutdown().await
         });
 
-        responder.await??;
-        initiator.await??;
-
-        Ok(())
+        let (r, i) = futures::try_join!(responder, initiator)?;
+        r.and(i)
     }
 
     #[tokio::test]
@@ -256,10 +254,8 @@ mod tests {
             t.shutdown().await
         });
 
-        responder.await??;
-        initiator.await??;
-
-        Ok(())
+        let (r, i) = futures::try_join!(responder, initiator)?;
+        r.and(i)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -273,24 +269,28 @@ mod tests {
 
         let responder = tokio::spawn(async move {
             let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
-            io::copy(&mut t, &mut io::sink()).await?;
+            time::timeout(Duration::from_millis(500), io::copy(&mut t, &mut io::sink())).await??;
             t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
             let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
-            io::copy_buf(
-                &mut BufReader::with_capacity(64 * 1024, io::repeat(0xed).take(100 * 1024 * 1024)),
-                &mut t,
+            time::timeout(
+                Duration::from_millis(500),
+                io::copy_buf(
+                    &mut BufReader::with_capacity(
+                        64 * 1024,
+                        io::repeat(0xed).take(100 * 1024 * 1024),
+                    ),
+                    &mut t,
+                ),
             )
-            .await?;
+            .await??;
             t.shutdown().await
         });
 
-        responder.await??;
-        initiator.await??;
-
-        Ok(())
+        let (r, i) = futures::try_join!(responder, initiator)?;
+        r.and(i)
     }
 
     #[test]
@@ -319,6 +319,7 @@ mod tests {
                     .await;
                     // Success is either a timeout or a handshake failure.
                     assert!(t.is_err() || t.unwrap().is_err());
+                    Ok(())
                 });
 
                 let initiator = tokio::spawn(async move {
@@ -326,8 +327,8 @@ mod tests {
                     initiator_conn.write_all(&data).await
                 });
 
-                responder.await?;
-                initiator.await?
+                let (r, i) = futures::try_join!(responder, initiator)?;
+                r.and(i)
             })
             .expect("should fuzz successfully");
         });
@@ -364,6 +365,7 @@ mod tests {
                         .await;
                         // Success is anything but received data.
                         assert!(!matches!(res, Ok(Ok(n)) if n > 0));
+                        Ok(())
                     });
 
                     let initiator = tokio::spawn(async move {
@@ -374,8 +376,8 @@ mod tests {
                         t.into_inner().write_all(&data).await
                     });
 
-                    responder.await?;
-                    initiator.await?
+                    let (r, i) = futures::try_join!(responder, initiator)?;
+                    r.and(i)
                 })
                 .expect("should fuzz successfully");
             },
