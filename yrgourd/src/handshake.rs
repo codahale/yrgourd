@@ -44,10 +44,6 @@ pub fn initiate(
     static_pub.copy_from_slice(&initiator_static.public_key.encoded);
     yr.encrypt(b"initiator-static-pub", static_pub);
 
-    // Calculate the static shared secret and mix it into the protocol.
-    let static_shared = (responder.q * initiator_static.d).encode();
-    yr.mix(b"static-shared", &static_shared);
-
     // Sign the request.
     sign(
         &mut yr,
@@ -98,10 +94,6 @@ pub fn accept(
     // Decrypt and parse the initiator's static public key.
     yr.decrypt(b"initiator-static-pub", initiator_static);
     let static_pub = PublicKey::try_from(<&[u8]>::from(initiator_static)).ok()?;
-
-    // Calculate the static shared secret and mix it into the protocol.
-    let static_shared = (static_pub.q * responder_static.d).encode();
-    yr.mix(b"static-shared", &static_shared);
 
     // If initiators are restricted, check that the initiator is in the allowed set.
     if allowed_initiators.is_some_and(|keys| !keys.contains(&static_pub)) {

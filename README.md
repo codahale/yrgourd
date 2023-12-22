@@ -83,7 +83,6 @@ function initiator_init(initiator, responder.pub):
   yg ← mix(yg, "initiator-ephemeral-pub", ephemeral.pub)                          // Mix the ephemeral public key into the protocol.
   yg ← mix(yg, "initiator-ephemeral-shared", ecdh(responder.pub, ephemeral.priv)) // Mix the ephemeral ECDH shared secret into the protocol.
   (yg, a) ← encrypt(yg, "initiator-static-pub", initiator.pub)                    // Encrypt the initiator's public key.
-  yg ← mix(yg, "static-shared", ecdh(responder.pub, initiator.priv))              // Mix the static ECDH shared secret into the protocol.
   (k, I) ← gls254::key_gen()                                                      // Generate a commitment scalar and point.
   (yg, b) ← encrypt(yg, "initiator-commitment-point", I)                          // Encrypt the commitment point.
   (yr, r₀ǁr₁) ← derive(yr, "initiator-challenge-scalar", 16)                      // Derive two short challenge scalars.
@@ -106,7 +105,6 @@ function responder_accept(responder, ephemeral.pub, a, b, c):
   yg ← mix(yg, "initiator-ephemeral-pub", ephemeral.pub)                          // Mix the ephemeral public key into the protocol.
   yg ← mix(yg, "initiator-ephemeral-shared", ecdh(responder.pub, ephemeral.priv)) // Mix the ephemeral ECDH shared secret into the protocol.
   (yg, initiator.pub) ← decrypt(yg, "initiator-static-pub", a)                    // Decrypt the initiator's public key.
-  yg ← mix(yg, "static-shared", ecdh(responder.pub, initiator.priv))              // Mix the static ECDH shared secret into the protocol.
   (yg, I) ← encrypt(yg, "initiator-commitment-point", b)                          // Decrypt the commitment point.
   (yr, r₀′ǁr₁′) ← derive(yr, "initiator-challenge-scalar", 16)                    // Derive two counterfactual short challenge scalars.
   (yg, s) ← decrypt(yg, "initiator-proof-scalar", c)                              // Decrypt the proof scalar.
