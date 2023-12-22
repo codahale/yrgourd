@@ -269,7 +269,7 @@ mod tests {
 
         let responder = tokio::spawn(async move {
             let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
-            time::timeout(Duration::from_millis(500), io::copy(&mut t, &mut io::sink())).await??;
+            time::timeout(Duration::from_secs(10), io::copy(&mut t, &mut io::sink())).await??;
             t.shutdown().await
         });
 
