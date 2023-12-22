@@ -48,25 +48,17 @@ pub fn initiate(
     let static_shared = (responder.q * initiator_static.d).encode();
     yr.mix(b"static-shared", &static_shared);
 
-    // Generate a hedged commitment scalar and commitment point.
-    let k = yr.hedge(&mut rng, &[&initiator_static.d.encode()], 10_000, |clone| {
-        Some(Scalar::decode_reduce(&clone.derive_array::<32>(b"commitment-scalar")))
-    });
-    let i = Point::mulgen(&k);
-
-    // Encode and encrypt the commitment point of the initiator's signature.
-    i_enc.copy_from_slice(&i.encode());
-    yr.encrypt(b"initiator-commitment-point", i_enc);
-
-    // Derive two short challenge scalars and use them to calculate the full scalar.
-    let rb = yr.derive_array::<16>(b"initiator-challenge-scalar");
-    let r0 = u64::from_le_bytes(rb[..8].try_into().expect("rb should be 16 bytes"));
-    let r1 = u64::from_le_bytes(rb[8..].try_into().expect("rb should be 16 bytes"));
-    let r = Scalar::from_u64(r0) + Scalar::MU * Scalar::from_u64(r1);
-
-    // Calculate and encrypt the proof scalar for the initiator's signature.
-    s_enc.copy_from_slice(&((initiator_static.d * r) + k).encode());
-    yr.encrypt(b"initiator-proof-scalar", s_enc);
+    // Sign the request.
+    sign(
+        &mut yr,
+        &mut rng,
+        &initiator_static.d,
+        b"initiator-commitment-point",
+        i_enc,
+        b"initiator-challenge-scalar",
+        b"initiator-proof-scalar",
+        s_enc,
+    );
 
     // Send the initiator's ephemeral public key, the initiator's encrypted static public key,
     // and the two signature components: the encrypted commitment point and the encrypted proof
@@ -116,21 +108,16 @@ pub fn accept(
         return None;
     }
 
-    // Decrypt the initiator's encoded commitment point of the initiator's signature.
-    yr.decrypt(b"initiator-commitment-point", i);
-
-    // Re-derive the short challenge scalars.
-    let rb_p = yr.derive_array::<16>(b"initiator-challenge-scalar");
-    let r0_p = u64::from_le_bytes(rb_p[..8].try_into().expect("rb should be 16 bytes"));
-    let r1_p = u64::from_le_bytes(rb_p[8..].try_into().expect("rb should be 16 bytes"));
-
-    // Decrypt and decode the proof scalar of the initiator's signature.
-    yr.decrypt(b"initiator-proof-scalar", s);
-    let s = Scalar::decode(s)?;
-
-    // Verify the initiator's signature and early exit if invalid.
-    let i_p = (-static_pub.q).mul64mu_add_mulgen_vartime(r0_p, r1_p, &s);
-    if i != i_p.encode() {
+    // Verify the signature.
+    if !verify(
+        &mut yr,
+        &static_pub.q,
+        b"initiator-commitment-point",
+        i,
+        b"initiator-challenge-scalar",
+        b"initiator-proof-scalar",
+        s,
+    ) {
         return None;
     }
 
@@ -147,25 +134,17 @@ pub fn accept(
     let ephemeral_shared = (static_pub.q * responder_ephemeral.d).encode();
     yr.mix(b"responder-ephemeral-shared", &ephemeral_shared);
 
-    // Generate a hedged commitment scalar and commitment point.
-    let k = yr.hedge(&mut rng, &[&responder_static.d.encode()], 10_000, |clone| {
-        Some(Scalar::decode_reduce(&clone.derive_array::<32>(b"commitment-scalar")))
-    });
-    let i = Point::mulgen(&k);
-
-    // Encode and encrypt the commitment point of the responder's signature.
-    i_enc.copy_from_slice(&i.encode());
-    yr.encrypt(b"responder-commitment-point", i_enc);
-
-    // Derive two short challenge scalars and use them to calculate the full scalar.
-    let rb = yr.derive_array::<16>(b"responder-challenge-scalar");
-    let r0 = u64::from_le_bytes(rb[..8].try_into().expect("rb should be 16 bytes"));
-    let r1 = u64::from_le_bytes(rb[8..].try_into().expect("rb should be 16 bytes"));
-    let r = Scalar::from_u64(r0) + Scalar::MU * Scalar::from_u64(r1);
-
-    // Calculate and encrypt the proof scalar for the responder's signature.
-    s_enc.copy_from_slice(&((responder_static.d * r) + k).encode());
-    yr.encrypt(b"responder-proof-scalar", s_enc);
+    // Sign the response.
+    sign(
+        &mut yr,
+        &mut rng,
+        &responder_static.d,
+        b"responder-commitment-point",
+        i_enc,
+        b"responder-challenge-scalar",
+        b"responder-proof-scalar",
+        s_enc,
+    );
 
     // Fork the protocol into recv and send clones.
     let mut recv = yr.clone();
@@ -198,21 +177,16 @@ pub fn finalize(
     let ephemeral_shared = (initiator_static.d * responder_ephemeral.q).encode();
     yr.mix(b"responder-ephemeral-shared", &ephemeral_shared);
 
-    // Decrypt the initiator's encoded commitment point of the responder's signature.
-    yr.decrypt(b"responder-commitment-point", i);
-
-    // Re-derive the short challenge scalars.
-    let rb_p = yr.derive_array::<16>(b"responder-challenge-scalar");
-    let r0_p = u64::from_le_bytes(rb_p[..8].try_into().expect("rb should be 16 bytes"));
-    let r1_p = u64::from_le_bytes(rb_p[8..].try_into().expect("rb should be 16 bytes"));
-
-    // Decrypt and decode the proof scalar of the responder's signature.
-    yr.decrypt(b"responder-proof-scalar", s);
-    let s = Scalar::decode(s)?;
-
-    // Verify the responder's signature and early exit if invalid.
-    let i_p = (-responder_static.q).mul64mu_add_mulgen_vartime(r0_p, r1_p, &s);
-    if i != i_p.encode() {
+    // Verify the signature.
+    if !verify(
+        &mut yr,
+        &responder_static.q,
+        b"responder-commitment-point",
+        i,
+        b"responder-challenge-scalar",
+        b"responder-proof-scalar",
+        s,
+    ) {
         return None;
     }
 
@@ -223,6 +197,67 @@ pub fn finalize(
     send.mix(b"sender", b"initiator");
 
     Some((recv, send))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn sign(
+    yr: &mut Protocol,
+    mut rng: impl CryptoRngCore,
+    d: &Scalar,
+    i_label: &[u8],
+    i_enc: &mut [u8],
+    r_label: &[u8],
+    s_label: &[u8],
+    s_enc: &mut [u8],
+) {
+    // Generate a hedged commitment scalar and commitment point.
+    let k = yr.hedge(&mut rng, &[&d.encode()], 10_000, |clone| {
+        Some(Scalar::decode_reduce(&clone.derive_array::<32>(b"commitment-scalar")))
+    });
+    let i = Point::mulgen(&k);
+
+    // Encode and encrypt the commitment point.
+    i_enc.copy_from_slice(&i.encode());
+    yr.encrypt(i_label, i_enc);
+
+    // Derive two short challenge scalars and use them to calculate the full scalar.
+    let rb = yr.derive_array::<16>(r_label);
+    let r0 = u64::from_le_bytes(rb[..8].try_into().expect("rb should be 16 bytes"));
+    let r1 = u64::from_le_bytes(rb[8..].try_into().expect("rb should be 16 bytes"));
+    let r = Scalar::from_u64(r0) + Scalar::MU * Scalar::from_u64(r1);
+
+    // Calculate and encrypt the proof scalar.
+    s_enc.copy_from_slice(&((d * r) + k).encode());
+    yr.encrypt(s_label, s_enc);
+}
+
+#[inline]
+fn verify(
+    yr: &mut Protocol,
+    q: &Point,
+    i_label: &[u8],
+    i: &mut [u8],
+    r_label: &[u8],
+    s_label: &[u8],
+    s: &mut [u8],
+) -> bool {
+    // Decrypt the encoded commitment point.
+    yr.decrypt(i_label, i);
+
+    // Re-derive the short challenge scalars.
+    let rb_p = yr.derive_array::<16>(r_label);
+    let r0_p = u64::from_le_bytes(rb_p[..8].try_into().expect("rb should be 16 bytes"));
+    let r1_p = u64::from_le_bytes(rb_p[8..].try_into().expect("rb should be 16 bytes"));
+
+    // Decrypt and decode the proof scalar.
+    yr.decrypt(s_label, s);
+    let Some(s) = Scalar::decode(s) else {
+        return false;
+    };
+
+    // Verify the signature by comparing the encoded commitment points.
+    i == (-q).mul64mu_add_mulgen_vartime(r0_p, r1_p, &s).encode()
 }
 
 #[cfg(test)]
