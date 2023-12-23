@@ -53,13 +53,13 @@ struct ProxyOpts {
 
     #[arg(
         long,
-        default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
+        default_value = "edfd7934e4d7c02d963d7ad69780e9bd1688c2a361a75b26c8ba192d0acd950d"
     )]
     private_key: PrivateKey,
 
     #[arg(
         long,
-        default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
+        default_value = "986993a6d9e6edf46877349e84ec0241ba1135c4113ac99a4dfb6e61b8c76002"
     )]
     server_public_key: PublicKey,
 
@@ -80,7 +80,7 @@ struct ReverseProxyOpts {
 
     #[arg(
         long,
-        default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
+        default_value = "d921552a6bc27229935a77a2b3316f624aaea9b9201876c7f4a85bb6eb929408"
     )]
     private_key: PrivateKey,
 
@@ -107,13 +107,13 @@ struct StreamOpts {
 
     #[arg(
         long,
-        default_value = "d83c8e8b86e4d9ff7d85aac092ba4e67ad20bbf85df6d802af725cde4f5ed80b"
+        default_value = "edfd7934e4d7c02d963d7ad69780e9bd1688c2a361a75b26c8ba192d0acd950d"
     )]
     private_key: PrivateKey,
 
     #[arg(
         long,
-        default_value = "1414c4dd1ab27ec4769382c28c9577140577f04a19794ece22df2e24ac555459"
+        default_value = "986993a6d9e6edf46877349e84ec0241ba1135c4113ac99a4dfb6e61b8c76002"
     )]
     server_public_key: PublicKey,
 
@@ -131,7 +131,7 @@ struct SinkOpts {
 
     #[arg(
         long,
-        default_value = "edf83cd9d95d10a42d675f9c6d478fe38a4c9f7e98d85d560f2ea44ac789840e"
+        default_value = "d921552a6bc27229935a77a2b3316f624aaea9b9201876c7f4a85bb6eb929408"
     )]
     private_key: PrivateKey,
 
