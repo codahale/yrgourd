@@ -34,8 +34,8 @@ pub fn initiator_begin(
     yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (initiator_ephemeral.d * responder.q).encode();
-    yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
+    let zz = (initiator_ephemeral.d * responder.q).encode();
+    yr.mix(b"ecdh-shared-secret", &zz);
 
     // Encrypt the initiator's static public key.
     static_pub.copy_from_slice(&initiator_static.public_key.encoded);
@@ -66,8 +66,8 @@ pub fn responder_begin(
     let initiator_ephemeral = Point::decode(initiator_ephemeral)?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (responder_static.d * initiator_ephemeral).encode();
-    yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
+    let zz = (responder_static.d * initiator_ephemeral).encode();
+    yr.mix(b"ecdh-shared-secret", &zz);
 
     // Decrypt and parse the initiator's static public key.
     yr.decrypt(b"initiator-static-pub", initiator_static);
