@@ -34,7 +34,7 @@ pub fn initiator_begin(
     yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (responder.q * initiator_ephemeral.d).encode();
+    let ephemeral_shared = (initiator_ephemeral.d * responder.q).encode();
     yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Encrypt the initiator's static public key.
@@ -66,7 +66,7 @@ pub fn responder_begin(
     let initiator_ephemeral = Point::decode(initiator_ephemeral)?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (initiator_ephemeral * responder_static.d).encode();
+    let ephemeral_shared = (responder_static.d * initiator_ephemeral).encode();
     yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Decrypt and parse the initiator's static public key.
@@ -90,8 +90,8 @@ pub fn responder_begin(
     //    =[(y+eb)(x+da)]G
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let k = (initiator_ephemeral + (initiator_static.q * d))
-        * (responder_ephemeral.d + e * responder_static.d);
+    let k = (responder_ephemeral.d + e * responder_static.d)
+        * (initiator_ephemeral + (d * initiator_static.q));
     yr.mix(b"shared-secret", &k.encode());
 
     // Generate an authentication tag.
@@ -126,8 +126,8 @@ pub fn initiator_finalize(
     //    =[(x+da)(y+eb)]G
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let k = (responder_ephemeral.q + (responder_static.q * e))
-        * (initiator_ephemeral.d + d * initiator_static.d);
+    let k = (initiator_ephemeral.d + d * initiator_static.d)
+        * (responder_ephemeral.q + (e * responder_static.q));
     yr.mix(b"shared-secret", &k.encode());
 
     // Confirm the responder's key.
