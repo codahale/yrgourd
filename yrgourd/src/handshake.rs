@@ -84,9 +84,9 @@ pub fn responder_begin(
     // Calculate and mix in the shared secret: (g^y+(g^be))^(x+da)
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let shared_secret = (initiator_ephemeral + (initiator_static.q * d))
+    let k = (initiator_ephemeral + (initiator_static.q * d))
         * (responder_ephemeral.d + e * responder_static.d);
-    yr.mix(b"shared-secret", &shared_secret.encode());
+    yr.mix(b"shared-secret", &k.encode());
 
     // Generate an authentication tag.
     yr.derive(b"responder-confirmation", confirm);
@@ -114,9 +114,9 @@ pub fn initiator_finalize(
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
-    let shared_secret = (responder_ephemeral.q + (responder_static.q * e))
+    let k = (responder_ephemeral.q + (responder_static.q * e))
         * (initiator_ephemeral.d + d * initiator_static.d);
-    yr.mix(b"shared-secret", &shared_secret.encode());
+    yr.mix(b"shared-secret", &k.encode());
 
     // Confirm the responder's key.
     let confirm_p = yr.derive_array::<CONFIRM_LEN>(b"responder-confirmation");
