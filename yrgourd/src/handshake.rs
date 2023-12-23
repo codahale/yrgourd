@@ -81,15 +81,11 @@ pub fn responder_begin(
     ephemeral.copy_from_slice(&responder_ephemeral.public_key.encoded);
     yr.encrypt(b"responder-ephemeral-pub", ephemeral);
 
-    // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let shared_secret = fhmqv_resp(
-        &initiator_static.q,
-        &initiator_ephemeral,
-        &responder_static.d,
-        &responder_ephemeral.d,
-        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
-        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
-    );
+    // Calculate and mix in the shared secret: (g^y+(g^be))^(x+da)
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
+    let shared_secret = (initiator_ephemeral + (initiator_static.q * d))
+        * (responder_ephemeral.d + e * responder_static.d);
     yr.mix(b"shared-secret", &shared_secret.encode());
 
     // Generate an authentication tag.
@@ -116,14 +112,10 @@ pub fn initiator_finalize(
     let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(ephemeral)).ok()?;
 
     // Calculate and mix in the shared secret: g^((x+da)(y+eb))
-    let shared_secret = fhmqv_init(
-        &responder_static.q,
-        &responder_ephemeral.q,
-        &initiator_static.d,
-        &initiator_ephemeral.d,
-        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
-        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
-    );
+    let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
+    let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
+    let shared_secret = (responder_ephemeral.q + (responder_static.q * e))
+        * (initiator_ephemeral.d + d * initiator_static.d);
     yr.mix(b"shared-secret", &shared_secret.encode());
 
     // Confirm the responder's key.
@@ -162,16 +154,6 @@ pub fn responder_finalize(
     send.mix(b"sender", b"responder");
 
     Some((recv, send))
-}
-
-#[inline]
-fn fhmqv_init(g_b: &Point, g_y: &Point, a: &Scalar, x: &Scalar, d: Scalar, e: Scalar) -> Point {
-    (g_y + (g_b * e)) * (x + d * a)
-}
-
-#[inline]
-fn fhmqv_resp(g_a: &Point, g_x: &Point, b: &Scalar, y: &Scalar, d: Scalar, e: Scalar) -> Point {
-    (g_x + (g_a * d)) * (y + e * b)
 }
 
 #[cfg(test)]
