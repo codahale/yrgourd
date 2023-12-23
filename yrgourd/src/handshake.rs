@@ -105,7 +105,7 @@ pub fn initiator_finalize(
     mut resp: [u8; RESPONSE_LEN],
 ) -> Option<(Protocol, Protocol, [u8; CONFIRM_LEN])> {
     // Split the response buffer.
-    let (ephemeral, confirm) = resp.split_at_mut(PUBLIC_KEY_LEN);
+    let (ephemeral, init_confirm) = resp.split_at_mut(PUBLIC_KEY_LEN);
 
     // Decrypt the responder's ephemeral public key.
     yr.decrypt(b"responder-ephemeral-pub", ephemeral);
@@ -119,21 +119,20 @@ pub fn initiator_finalize(
     yr.mix(b"shared-secret", &k.encode());
 
     // Confirm the responder's key.
-    let confirm_p = yr.derive_array::<CONFIRM_LEN>(b"responder-confirmation");
-    if confirm.ct_ne(&confirm_p).into() {
+    let init_confirm_p = yr.derive_array::<CONFIRM_LEN>(b"responder-confirmation");
+    if init_confirm.ct_ne(&init_confirm_p).into() {
         return None;
     }
 
     // Generate a tag confirmation.
-    let mut confirm = [0u8; CONFIRM_LEN];
-    yr.derive(b"initiator-confirmation", &mut confirm);
+    let resp_confirm = yr.derive_array(b"initiator-confirmation");
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
     recv.mix(b"sender", b"responder");
     send.mix(b"sender", b"initiator");
 
-    Some((recv, send, confirm))
+    Some((recv, send, resp_confirm))
 }
 
 /// Finalizes an accepted handshake with the initiator's confirmation. If valid, returns a `(recv,
