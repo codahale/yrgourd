@@ -24,12 +24,12 @@ fn handshake(bencher: divan::Bencher) {
         .bench_values(|(rt, mut responder, mut initiator, responder_pub, client, server)| {
             rt.block_on(async {
                 let responder = tokio::spawn(async move {
-                    let mut t = responder.accept_handshake(OsRng, server).await?;
+                    let mut t = responder.handshake(OsRng, server).await?;
                     t.shutdown().await
                 });
 
                 let initiator = tokio::spawn(async move {
-                    let mut t = initiator.initiate_handshake(OsRng, client, responder_pub).await?;
+                    let mut t = initiator.handshake(OsRng, client, responder_pub).await?;
                     t.shutdown().await
                 });
 
@@ -61,13 +61,13 @@ fn transfer(bencher: divan::Bencher) {
         .bench_values(|(rt, mut responder, mut initiator, responder_pub, client, server)| {
             rt.block_on(async {
                 let responder = tokio::spawn(async move {
-                    let mut t = responder.accept_handshake(OsRng, server).await?;
+                    let mut t = responder.handshake(OsRng, server).await?;
                     io::copy(&mut t, &mut io::sink()).await?;
                     t.shutdown().await
                 });
 
                 let initiator = tokio::spawn(async move {
-                    let mut t = initiator.initiate_handshake(OsRng, client, responder_pub).await?;
+                    let mut t = initiator.handshake(OsRng, client, responder_pub).await?;
                     io::copy_buf(
                         &mut BufReader::with_capacity(64 * 1024, io::repeat(0xed).take(LEN)),
                         &mut t,

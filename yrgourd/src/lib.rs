@@ -41,7 +41,7 @@ impl Initiator {
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn initiate_handshake<S, R>(
+    pub async fn handshake<S, R>(
         &mut self,
         mut rng: R,
         mut stream: S,
@@ -53,7 +53,7 @@ impl Initiator {
     {
         // Initialize a handshake initiator state and initiate a handshake.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder, &mut rng);
+        let (yr, req) = handshake::initiator_begin(&self.private_key, &ephemeral, &responder);
         stream.write_all(&req).await?;
 
         // Read and parse the handshake response from the responder.
@@ -61,10 +61,14 @@ impl Initiator {
         stream.read_exact(&mut resp).await?;
 
         // Validate the responder response.
-        let Some((recv, send)) = handshake::finalize(&self.private_key, &responder, yr, resp)
-        else {
-            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"));
-        };
+        let (recv, send, confirm) =
+            handshake::initiator_finalize(&self.private_key, &ephemeral, &responder, yr, resp)
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake")
+                })?;
+
+        // Send the key confirmation.
+        stream.write_all(&confirm).await?;
 
         Ok(Transport::new(Framed::new(
             stream,
@@ -130,7 +134,7 @@ impl Responder {
     ///
     /// Returns an error if the handshake is unsuccessful or if if the stream returns an error on
     /// reads or writes during the handshake.
-    pub async fn accept_handshake<S, R>(
+    pub async fn handshake<S, R>(
         &mut self,
         mut rng: R,
         mut stream: S,
@@ -145,17 +149,24 @@ impl Responder {
 
         // Process the handshake and generate a response.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (pk, recv, send, resp) = handshake::accept(
-            &self.private_key,
-            &ephemeral,
-            self.allow_policy.keys(),
-            &mut rng,
-            req,
-        )
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+        let (pk, yr, resp) = handshake::responder_begin(&self.private_key, &ephemeral, req)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+
+        // Check the initiator's public key to see if it's allowed.
+        if self.allow_policy.keys().is_some_and(|keys| keys.contains(&pk)) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad handshake"));
+        }
 
         // Send the handshake response.
         stream.write_all(&resp).await?;
+
+        // Read the initiator's key confirmation.
+        let mut confirm = [0u8; handshake::CONFIRM_LEN];
+        stream.read_exact(&mut confirm).await?;
+
+        // Confirm the initiator's key and fork the protocol.
+        let (recv, send) = handshake::responder_finalize(yr, confirm)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         Ok(Transport::new(Framed::new(
             stream,
@@ -192,7 +203,7 @@ mod tests {
         let (initiator_conn, responder_conn) = io::duplex(64);
 
         let responder = tokio::spawn(async move {
-            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
+            let mut t = responder.handshake(OsRng, responder_conn).await?;
             t.write_all(b"this is a server").await?;
             t.flush().await?;
 
@@ -204,7 +215,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
+            let mut t = initiator.handshake(OsRng, initiator_conn, responder_pub).await?;
 
             t.write_all(b"this is a client").await?;
             t.flush().await?;
@@ -231,7 +242,7 @@ mod tests {
         let (initiator_conn, responder_conn) = io::duplex(64);
 
         let responder = tokio::spawn(async move {
-            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
+            let mut t = responder.handshake(OsRng, responder_conn).await?;
 
             let mut buf = String::new();
             t.read_to_string(&mut buf).await?;
@@ -241,7 +252,7 @@ mod tests {
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
+            let mut t = initiator.handshake(OsRng, initiator_conn, responder_pub).await?;
 
             // This frame is sent as data.
             t.write_all(b"this is a client").await?;
@@ -272,13 +283,13 @@ mod tests {
         let (initiator_conn, responder_conn) = io::duplex(1024 * 1024);
 
         let responder = tokio::spawn(async move {
-            let mut t = responder.accept_handshake(OsRng, responder_conn).await?;
+            let mut t = responder.handshake(OsRng, responder_conn).await?;
             time::timeout(Duration::from_secs(10), io::copy(&mut t, &mut io::sink())).await??;
             t.shutdown().await
         });
 
         let initiator = tokio::spawn(async move {
-            let mut t = initiator.initiate_handshake(OsRng, initiator_conn, responder_pub).await?;
+            let mut t = initiator.handshake(OsRng, initiator_conn, responder_pub).await?;
             time::timeout(
                 Duration::from_secs(10),
                 io::copy_buf(
@@ -318,7 +329,7 @@ mod tests {
                     // Don't wait for more than 100ms for the handshake to complete.
                     let t = tokio::time::timeout(
                         Duration::from_millis(100),
-                        responder.accept_handshake(rng, responder_conn),
+                        responder.handshake(rng, responder_conn),
                     )
                     .await;
                     // Success is either a timeout or a handshake failure.
@@ -360,7 +371,7 @@ mod tests {
                 rt.block_on(async {
                     let responder = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s1);
-                        let mut t = responder.accept_handshake(rng, server).await.unwrap();
+                        let mut t = responder.handshake(rng, server).await.unwrap();
                         // Don't wait more than 100ms for the copy to complete.
                         let res = tokio::time::timeout(
                             Duration::from_millis(100),
@@ -375,7 +386,7 @@ mod tests {
                     let initiator = tokio::spawn(async move {
                         let rng = ChaChaRng::seed_from_u64(s2);
                         // Perform a valid handshake.
-                        let t = initiator.initiate_handshake(rng, client, responder_pub).await?;
+                        let t = initiator.handshake(rng, client, responder_pub).await?;
                         // Then write fuzz data directly.
                         t.into_inner().write_all(&data).await
                     });

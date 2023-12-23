@@ -1,24 +1,23 @@
-use std::collections::HashSet;
-
 use crrl::gls254::{Point, Scalar};
-use lockstitch::Protocol;
-use rand_core::CryptoRngCore;
+use lockstitch::{subtle::ConstantTimeEq, Protocol, TAG_LEN};
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
 
 /// The length of an encoded request in bytes.
-pub const REQUEST_LEN: usize = PUBLIC_KEY_LEN + PUBLIC_KEY_LEN + 32 + 32;
+pub const REQUEST_LEN: usize = PUBLIC_KEY_LEN + PUBLIC_KEY_LEN;
 
 /// The length of an encoded response in bytes.
-pub const RESPONSE_LEN: usize = PUBLIC_KEY_LEN + 32 + 32;
+pub const RESPONSE_LEN: usize = PUBLIC_KEY_LEN + CONFIRM_LEN;
+
+/// The length of a final confirmation tag.
+pub const CONFIRM_LEN: usize = TAG_LEN;
 
 /// Initiates a handshake, returning a [`Protocol`] and an opaque array of bytes to be sent to the
 /// responder.
-pub fn initiate(
+pub fn initiator_begin(
     initiator_static: &PrivateKey,
     initiator_ephemeral: &PrivateKey,
     responder: &PublicKey,
-    mut rng: impl CryptoRngCore,
 ) -> (Protocol, [u8; REQUEST_LEN]) {
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
@@ -26,8 +25,6 @@ pub fn initiate(
     // Allocate and split a request buffer.
     let mut req = [0u8; REQUEST_LEN];
     let (ephemeral_pub, static_pub) = req.split_at_mut(PUBLIC_KEY_LEN);
-    let (static_pub, i_enc) = static_pub.split_at_mut(PUBLIC_KEY_LEN);
-    let (i_enc, s_enc) = i_enc.split_at_mut(32);
 
     // Mix the responder's static public key into the protocol.
     yr.mix(b"responder-static-pub", &responder.encoded);
@@ -38,47 +35,28 @@ pub fn initiate(
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (responder.q * initiator_ephemeral.d).encode();
-    yr.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Encrypt the initiator's static public key.
     static_pub.copy_from_slice(&initiator_static.public_key.encoded);
     yr.encrypt(b"initiator-static-pub", static_pub);
 
-    // Sign the request.
-    sign(
-        &mut yr,
-        &mut rng,
-        &initiator_static.d,
-        b"initiator-commitment-point",
-        i_enc,
-        b"initiator-challenge-scalar",
-        b"initiator-proof-scalar",
-        s_enc,
-    );
-
-    // Send the initiator's ephemeral public key, the initiator's encrypted static public key,
-    // and the two signature components: the encrypted commitment point and the encrypted proof
-    // scalar.
+    // Send the initiator's ephemeral public key and the initiator's encrypted static public key.
     (yr, req)
 }
 
-/// Accepts a handshake given the initiator's request. If valid, returns the initiator's public key,
-/// a `(recv, send)` pair of [`Protocol`]s for transport, and a response to be sent to the
-/// initiator.
-pub fn accept(
+/// Accepts a handshake given the initiator's request. If valid, returns the initiator's public key
+/// and a response to be sent to the initiator.
+pub fn responder_begin(
     responder_static: &PrivateKey,
     responder_ephemeral: &PrivateKey,
-    allowed_initiators: Option<&HashSet<PublicKey>>,
-    mut rng: impl CryptoRngCore,
     mut req: [u8; REQUEST_LEN],
-) -> Option<(PublicKey, Protocol, Protocol, [u8; RESPONSE_LEN])> {
+) -> Option<(PublicKey, Protocol, [u8; RESPONSE_LEN])> {
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
 
     // Split the request buffer.
     let (initiator_ephemeral, initiator_static) = req.split_at_mut(PUBLIC_KEY_LEN);
-    let (initiator_static, i) = initiator_static.split_at_mut(PUBLIC_KEY_LEN);
-    let (i, s) = i.split_at_mut(32);
 
     // Mix the responder's static public key into the protocol.
     yr.mix(b"responder-static-pub", &responder_static.public_key.encoded);
@@ -89,167 +67,111 @@ pub fn accept(
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
     let ephemeral_shared = (initiator_ephemeral * responder_static.d).encode();
-    yr.mix(b"initiator-ephemeral-shared", &ephemeral_shared);
+    yr.mix(b"ecdh-shared-secret", &ephemeral_shared);
 
     // Decrypt and parse the initiator's static public key.
     yr.decrypt(b"initiator-static-pub", initiator_static);
-    let static_pub = PublicKey::try_from(<&[u8]>::from(initiator_static)).ok()?;
-
-    // If initiators are restricted, check that the initiator is in the allowed set.
-    if allowed_initiators.is_some_and(|keys| !keys.contains(&static_pub)) {
-        return None;
-    }
-
-    // Verify the signature.
-    if !verify(
-        &mut yr,
-        &static_pub.q,
-        b"initiator-commitment-point",
-        i,
-        b"initiator-challenge-scalar",
-        b"initiator-proof-scalar",
-        s,
-    ) {
-        return None;
-    }
+    let initiator_static = PublicKey::try_from(<&[u8]>::from(initiator_static)).ok()?;
 
     // Allocate and split a response buffer.
     let mut resp = [0u8; RESPONSE_LEN];
-    let (ephemeral_pub, i) = resp.split_at_mut(PUBLIC_KEY_LEN);
-    let (i_enc, s_enc) = i.split_at_mut(32);
+    let (ephemeral, confirm) = resp.split_at_mut(PUBLIC_KEY_LEN);
 
     // Encrypt the responder's ephemeral public key.
-    ephemeral_pub.copy_from_slice(&responder_ephemeral.public_key.encoded);
-    yr.encrypt(b"responder-ephemeral-pub", ephemeral_pub);
+    ephemeral.copy_from_slice(&responder_ephemeral.public_key.encoded);
+    yr.encrypt(b"responder-ephemeral-pub", ephemeral);
 
-    // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (static_pub.q * responder_ephemeral.d).encode();
-    yr.mix(b"responder-ephemeral-shared", &ephemeral_shared);
-
-    // Sign the response.
-    sign(
-        &mut yr,
-        &mut rng,
+    // Calculate and mix in the shared secret: g^((x+da)(y+eb))
+    let shared_secret = fhmqv_resp(
+        &initiator_static.q,
+        &initiator_ephemeral,
         &responder_static.d,
-        b"responder-commitment-point",
-        i_enc,
-        b"responder-challenge-scalar",
-        b"responder-proof-scalar",
-        s_enc,
+        &responder_ephemeral.d,
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
     );
+    yr.mix(b"shared-secret", &shared_secret.encode());
 
-    // Fork the protocol into recv and send clones.
-    let mut recv = yr.clone();
-    recv.mix(b"sender", b"initiator");
-    let mut send = yr.clone();
-    send.mix(b"sender", b"responder");
+    // Generate an authentication tag.
+    yr.derive(b"responder-confirmation", confirm);
 
-    // Return the initiator's public key, recv and send protocols, and a response to the
-    // initiator.
-    Some((static_pub, recv, send, resp))
+    // Return the initiator's public key  and a response to the initiator.
+    Some((initiator_static, yr, resp))
 }
 
 /// Finalizes an initiated handshake given the responder's response. If valid, returns a `(recv,
-/// send)` pair of [`Protocol`]s for transport.
-pub fn finalize(
+/// send)` pair of [`Protocol`]s for transport and a confirmation to be sent to the responder.
+pub fn initiator_finalize(
     initiator_static: &PrivateKey,
+    initiator_ephemeral: &PrivateKey,
     responder_static: &PublicKey,
     mut yr: Protocol,
     mut resp: [u8; RESPONSE_LEN],
-) -> Option<(Protocol, Protocol)> {
-    // Split the response into its components.
-    let (responder_ephemeral, i) = resp.split_at_mut(PUBLIC_KEY_LEN);
-    let (i, s) = i.split_at_mut(32);
+) -> Option<(Protocol, Protocol, [u8; CONFIRM_LEN])> {
+    // Split the response buffer.
+    let (ephemeral, confirm) = resp.split_at_mut(PUBLIC_KEY_LEN);
 
     // Decrypt the responder's ephemeral public key.
-    yr.decrypt(b"responder-ephemeral-pub", responder_ephemeral);
-    let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(responder_ephemeral)).ok()?;
+    yr.decrypt(b"responder-ephemeral-pub", ephemeral);
+    let responder_ephemeral = PublicKey::try_from(<&[u8]>::from(ephemeral)).ok()?;
 
-    // Calculate the ephemeral shared secret and mix it into the protocol.
-    let ephemeral_shared = (initiator_static.d * responder_ephemeral.q).encode();
-    yr.mix(b"responder-ephemeral-shared", &ephemeral_shared);
-
-    // Verify the signature.
-    if !verify(
-        &mut yr,
+    // Calculate and mix in the shared secret: g^((x+da)(y+eb))
+    let shared_secret = fhmqv_init(
         &responder_static.q,
-        b"responder-commitment-point",
-        i,
-        b"responder-challenge-scalar",
-        b"responder-proof-scalar",
-        s,
-    ) {
+        &responder_ephemeral.q,
+        &initiator_static.d,
+        &initiator_ephemeral.d,
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d"))),
+        Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e"))),
+    );
+    yr.mix(b"shared-secret", &shared_secret.encode());
+
+    // Confirm the responder's key.
+    let confirm_p = yr.derive_array::<CONFIRM_LEN>(b"responder-confirmation");
+    if confirm.ct_ne(&confirm_p).into() {
+        return None;
+    }
+
+    // Generate a tag confirmation.
+    let mut confirm = [0u8; CONFIRM_LEN];
+    yr.derive(b"initiator-confirmation", &mut confirm);
+
+    // Fork the protocol into recv and send clones.
+    let (mut recv, mut send) = (yr.clone(), yr);
+    recv.mix(b"sender", b"responder");
+    send.mix(b"sender", b"initiator");
+
+    Some((recv, send, confirm))
+}
+
+/// Finalizes an accepted handshake with the initiator's confirmation. If valid, returns a `(recv,
+/// send)` pair of [`Protocol`]s for transport.
+pub fn responder_finalize(
+    mut yr: Protocol,
+    confirm: [u8; CONFIRM_LEN],
+) -> Option<(Protocol, Protocol)> {
+    // Confirm the initiator's key.
+    let confirm_p = yr.derive_array::<CONFIRM_LEN>(b"initiator-confirmation");
+    if confirm.ct_ne(&confirm_p).into() {
         return None;
     }
 
     // Fork the protocol into recv and send clones.
-    let mut recv = yr.clone();
-    recv.mix(b"sender", b"responder");
-    let mut send = yr;
-    send.mix(b"sender", b"initiator");
+    let (mut recv, mut send) = (yr.clone(), yr);
+    recv.mix(b"sender", b"initiator");
+    send.mix(b"sender", b"responder");
 
     Some((recv, send))
 }
 
-#[allow(clippy::too_many_arguments)]
 #[inline]
-fn sign(
-    yr: &mut Protocol,
-    mut rng: impl CryptoRngCore,
-    d: &Scalar,
-    i_label: &[u8],
-    i_enc: &mut [u8],
-    r_label: &[u8],
-    s_label: &[u8],
-    s_enc: &mut [u8],
-) {
-    // Generate a hedged commitment scalar and commitment point.
-    let k = yr.hedge(&mut rng, &[&d.encode()], 10_000, |clone| {
-        Some(Scalar::decode_reduce(&clone.derive_array::<32>(b"commitment-scalar")))
-    });
-    let i = Point::mulgen(&k);
-
-    // Encode and encrypt the commitment point.
-    i_enc.copy_from_slice(&i.encode());
-    yr.encrypt(i_label, i_enc);
-
-    // Derive two short challenge scalars and use them to calculate the full scalar.
-    let rb = yr.derive_array::<16>(r_label);
-    let r0 = u64::from_le_bytes(rb[..8].try_into().expect("rb should be 16 bytes"));
-    let r1 = u64::from_le_bytes(rb[8..].try_into().expect("rb should be 16 bytes"));
-    let r = Scalar::from_u64(r0) + Scalar::MU * Scalar::from_u64(r1);
-
-    // Calculate and encrypt the proof scalar.
-    s_enc.copy_from_slice(&((d * r) + k).encode());
-    yr.encrypt(s_label, s_enc);
+fn fhmqv_init(g_b: &Point, g_y: &Point, a: &Scalar, x: &Scalar, d: Scalar, e: Scalar) -> Point {
+    (g_y + (g_b * e)) * (x + d * a)
 }
 
 #[inline]
-fn verify(
-    yr: &mut Protocol,
-    q: &Point,
-    i_label: &[u8],
-    i: &mut [u8],
-    r_label: &[u8],
-    s_label: &[u8],
-    s: &mut [u8],
-) -> bool {
-    // Decrypt the encoded commitment point.
-    yr.decrypt(i_label, i);
-
-    // Re-derive the short challenge scalars.
-    let rb_p = yr.derive_array::<16>(r_label);
-    let r0_p = u64::from_le_bytes(rb_p[..8].try_into().expect("rb should be 16 bytes"));
-    let r1_p = u64::from_le_bytes(rb_p[8..].try_into().expect("rb should be 16 bytes"));
-
-    // Decrypt and decode the proof scalar.
-    yr.decrypt(s_label, s);
-    let Some(s) = Scalar::decode(s) else {
-        return false;
-    };
-
-    // Verify the signature by comparing the encoded commitment points.
-    i == (-q).mul64mu_add_mulgen_vartime(r0_p, r1_p, &s).encode()
+fn fhmqv_resp(g_a: &Point, g_x: &Point, b: &Scalar, y: &Scalar, d: Scalar, e: Scalar) -> Point {
+    (g_x + (g_a * d)) * (y + e * b)
 }
 
 #[cfg(test)]
@@ -267,62 +189,24 @@ mod tests {
         let initiator_static = PrivateKey::random(&mut rng);
         let initiator_ephemeral = PrivateKey::random(&mut rng);
 
-        let (yr, req) = initiate(
-            &initiator_static,
-            &initiator_ephemeral,
-            &responder_static.public_key,
-            &mut rng,
-        );
+        let (yr_init, req) =
+            initiator_begin(&initiator_static, &initiator_ephemeral, &responder_static.public_key);
 
-        let (pk, mut responder_recv, mut responder_send, resp) =
-            accept(&responder_static, &responder_ephemeral, None, &mut rng, req)
-                .expect("should handle initiator request successfully");
+        let (pk, yr_resp, resp) = responder_begin(&responder_static, &responder_ephemeral, req)
+            .expect("should successfully begin response");
         assert_eq!(initiator_static.public_key, pk);
 
-        let (mut initiator_recv, mut initiator_send) =
-            finalize(&initiator_static, &responder_static.public_key, yr, resp)
-                .expect("should handle responder response successfully");
-
-        assert_eq!(
-            responder_recv.derive_array::<8>(b"test"),
-            initiator_send.derive_array::<8>(b"test")
-        );
-        assert_eq!(
-            initiator_recv.derive_array::<8>(b"test"),
-            responder_send.derive_array::<8>(b"test")
-        );
-    }
-
-    #[test]
-    fn allowed_initiator() {
-        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let responder_static = PrivateKey::random(&mut rng);
-        let responder_ephemeral = PrivateKey::random(&mut rng);
-        let initiator_static = PrivateKey::random(&mut rng);
-        let initiator_ephemeral = PrivateKey::random(&mut rng);
-
-        let mut allowed_initiators = HashSet::new();
-        allowed_initiators.insert(initiator_static.public_key);
-
-        let (yr, req) = initiate(
+        let (mut initiator_recv, mut initiator_send, confirm) = initiator_finalize(
             &initiator_static,
             &initiator_ephemeral,
             &responder_static.public_key,
-            &mut rng,
-        );
-        let (pk, mut responder_recv, mut responder_send, resp) = accept(
-            &responder_static,
-            &responder_ephemeral,
-            Some(&allowed_initiators),
-            &mut rng,
-            req,
+            yr_init,
+            resp,
         )
-        .expect("should handle initiator request successfully");
-        assert_eq!(initiator_static.public_key, pk);
+        .expect("should successfully finalize request");
 
-        let (mut initiator_recv, mut initiator_send) =
-            finalize(&initiator_static, &responder_static.public_key, yr, resp)
-                .expect("should handle responder response successfully");
+        let (mut responder_recv, mut responder_send) =
+            responder_finalize(yr_resp, confirm).expect("should successfully finalize response");
 
         assert_eq!(
             responder_recv.derive_array::<8>(b"test"),
@@ -335,60 +219,55 @@ mod tests {
     }
 
     #[test]
-    fn restricted_initiator() {
-        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let responder_static = PrivateKey::random(&mut rng);
-        let responder_ephemeral = PrivateKey::random(&mut rng);
-        let initiator_static = PrivateKey::random(&mut rng);
-        let initiator_ephemeral = PrivateKey::random(&mut rng);
-        let bad_initiator = PrivateKey::random(&mut rng);
-
-        let mut allowed_initiators = HashSet::new();
-        allowed_initiators.insert(initiator_static.public_key);
-
-        let (_, req) =
-            initiate(&bad_initiator, &initiator_ephemeral, &responder_static.public_key, &mut rng);
-        assert!(
-            accept(
-                &responder_static,
-                &responder_ephemeral,
-                Some(&allowed_initiators),
-                &mut rng,
-                req
-            )
-            .is_none(),
-            "should not allow a handshake with an initiator not in the set"
-        );
-    }
-
-    #[test]
-    fn fuzz_responder_respond() {
+    fn fuzz_responder_begin() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let responder_static = PrivateKey::random(&mut rng);
         let responder_ephemeral = PrivateKey::random(&mut rng);
 
-        bolero::check!().with_type::<(u64, [u8; REQUEST_LEN])>().cloned().for_each(
-            |(seed, req)| {
-                let mut rng = ChaChaRng::seed_from_u64(seed);
-                assert!(
-                    accept(&responder_static, &responder_ephemeral, None, &mut rng, req).is_none()
-                );
-            },
-        );
+        bolero::check!().with_type::<[u8; REQUEST_LEN]>().cloned().for_each(|req| {
+            // Some random values will decrypt into valid ephemeral public keys. That's ok.
+            let _ = responder_begin(&responder_static, &responder_ephemeral, req);
+        });
     }
 
     #[test]
     fn fuzz_initiator_finalize() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let responder = PrivateKey::random(&mut rng);
+        let responder_static = PrivateKey::random(&mut rng);
         let initiator_static = PrivateKey::random(&mut rng);
         let initiator_ephemeral = PrivateKey::random(&mut rng);
 
-        let (yr, _) =
-            initiate(&initiator_static, &initiator_ephemeral, &responder.public_key, &mut rng);
+        let (yr_init, _) =
+            initiator_begin(&initiator_static, &initiator_ephemeral, &responder_static.public_key);
 
         bolero::check!().with_type::<[u8; RESPONSE_LEN]>().cloned().for_each(|resp| {
-            assert!(finalize(&initiator_static, &responder.public_key, yr.clone(), resp).is_none());
+            assert!(initiator_finalize(
+                &initiator_static,
+                &initiator_ephemeral,
+                &responder_static.public_key,
+                yr_init.clone(),
+                resp,
+            )
+            .is_none());
+        });
+    }
+
+    #[test]
+    fn fuzz_responder_finalize() {
+        let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
+        let responder_static = PrivateKey::random(&mut rng);
+        let responder_ephemeral = PrivateKey::random(&mut rng);
+        let initiator_static = PrivateKey::random(&mut rng);
+        let initiator_ephemeral = PrivateKey::random(&mut rng);
+
+        let (_, req) =
+            initiator_begin(&initiator_static, &initiator_ephemeral, &responder_static.public_key);
+
+        let (_, yr_resp, _) =
+            responder_begin(&responder_static, &responder_ephemeral, req).expect("should succeed");
+
+        bolero::check!().with_type::<[u8; CONFIRM_LEN]>().cloned().for_each(|confirm| {
+            assert!(responder_finalize(yr_resp.clone(), confirm).is_none());
         });
     }
 }
