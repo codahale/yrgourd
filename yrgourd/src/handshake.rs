@@ -17,7 +17,7 @@ pub const CONFIRM_LEN: usize = TAG_LEN;
 pub fn initiator_begin(
     initiator_static: &PrivateKey,
     initiator_ephemeral: &PrivateKey,
-    responder: &PublicKey,
+    responder_static: &PublicKey,
 ) -> (Protocol, [u8; REQUEST_LEN]) {
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
@@ -27,14 +27,14 @@ pub fn initiator_begin(
     let (ephemeral_pub, static_pub) = req.split_at_mut(PUBLIC_KEY_LEN);
 
     // Mix the responder's static public key into the protocol.
-    yr.mix(b"responder-static-pub", &responder.encoded);
+    yr.mix(b"responder-static-pub", &responder_static.encoded);
 
     // Mix the initiator's ephemeral public key into the protocol.
     ephemeral_pub.copy_from_slice(&initiator_ephemeral.public_key.encoded);
     yr.mix(b"initiator-ephemeral-pub", ephemeral_pub);
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let zz = (initiator_ephemeral.d * responder.q).encode();
+    let zz = (initiator_ephemeral.d * responder_static.q).encode();
     yr.mix(b"ecdh-shared-secret", &zz);
 
     // Encrypt the initiator's static public key.
