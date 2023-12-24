@@ -174,19 +174,19 @@ On my M2 MacBook Air:
 ```text
 Timer precision: 41.66 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  106.9 µs      │ 365.8 µs      │ 125.8 µs      │ 129.4 µs      │ 7723    │ 7723
-╰─ transfer   21.42 ms      │ 23.75 ms      │ 22.04 ms      │ 22.1 ms       │ 100     │ 100
-              4.557 GiB/s   │ 4.11 GiB/s    │ 4.429 GiB/s   │ 4.418 GiB/s   │         │
+├─ handshake  113 µs        │ 595.7 µs      │ 143 µs        │ 151.8 µs      │ 6586    │ 6586
+╰─ transfer   21.71 ms      │ 31.32 ms      │ 22.41 ms      │ 22.71 ms      │ 100     │ 100
+              4.497 GiB/s   │ 3.117 GiB/s   │ 4.356 GiB/s   │ 4.298 GiB/s   │         │
 ```
 
 On a GCP `c3-standard-4` (`-C target-cpu=native`):
 
 ```text
-Timer precision: 23.7 ns
+Timer precision: 24.44 ns
 benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  129.8 µs      │ 958 µs        │ 160 µs        │ 161.7 µs      │ 6183    │ 6183
-╰─ transfer   34.62 ms      │ 39.1 ms       │ 36.28 ms      │ 36.3 ms       │ 100     │ 100
-              2.82 GiB/s    │ 2.497 GiB/s   │ 2.691 GiB/s   │ 2.689 GiB/s   │         │
+├─ handshake  144.3 µs      │ 1.186 ms      │ 172.8 µs      │ 175.5 µs      │ 5698    │ 5698
+╰─ transfer   35.06 ms      │ 39 ms         │ 37.05 ms      │ 36.79 ms      │ 100     │ 100
+              2.784 GiB/s   │ 2.503 GiB/s   │ 2.635 GiB/s   │ 2.654 GiB/s   │         │
 ```
 
 `handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
