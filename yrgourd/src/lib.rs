@@ -61,7 +61,7 @@ impl Initiator {
         stream.read_exact(&mut resp).await?;
 
         // Finalize the handshake.
-        let (recv, send) = handshake::finalize(&self.private_key, &responder, yr, resp)
+        let (recv, send) = handshake::finalize(&self.private_key, &ephemeral, yr, resp)
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"))?;
 
         Ok(Transport::new(Framed::new(
