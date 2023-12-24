@@ -20,7 +20,8 @@ In addition, there is absolutely no guarantee of backwards compatibility.
   operations.
 * Capable of >10 Gb/sec throughput.
 * Everything but the first 32 bytes of a connection is encrypted.
-* Handshakes use FHMQV-C to authenticate both sender and receiver with forward security for both.
+* Handshakes use Noise-IK-style ECDH to authenticate both sender and receiver with forward security
+  for both.
 * Uses ephemeral keys to ratchet the connection state every `N` seconds or `M` bytes.
 * Responders can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
@@ -71,7 +72,7 @@ connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 
 Both initiator and responder have [GLS254][] key pairs; the initiator knows the responder's public
 key. The handshake is effectively the same as the `IK` handshake in the [Noise][] protocol
-framework.
+framework, providing full mutual authentication as well as identity-hiding.
 
 [Noise]: https://noiseprotocol.org/noise.html#interactive-handshake-patterns-fundamental
 
