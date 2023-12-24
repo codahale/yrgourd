@@ -51,24 +51,18 @@ impl Initiator {
         S: AsyncRead + AsyncWrite + Unpin,
         R: CryptoRngCore,
     {
-        // Initialize a handshake initiator state and initiate a handshake.
+        // Initiate a handshake.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (yr, req) = handshake::initiator_begin(&self.private_key, &ephemeral, &responder);
+        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder);
         stream.write_all(&req).await?;
 
-        // Read and parse the handshake response from the responder.
+        // Read the handshake response from the responder.
         let mut resp = [0u8; handshake::RESPONSE_LEN];
         stream.read_exact(&mut resp).await?;
 
-        // Validate the responder response.
-        let (recv, send, confirm) =
-            handshake::initiator_finalize(&self.private_key, &ephemeral, &responder, yr, resp)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake")
-                })?;
-
-        // Send the key confirmation.
-        stream.write_all(&confirm).await?;
+        // Finalize the handshake.
+        let (recv, send) = handshake::finalize(&self.private_key, &responder, yr, resp)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"))?;
 
         Ok(Transport::new(Framed::new(
             stream,
@@ -147,26 +141,18 @@ impl Responder {
         let mut req = [0u8; handshake::REQUEST_LEN];
         stream.read_exact(&mut req).await?;
 
-        // Process the handshake and generate a response.
+        // Accept the handshake and generate a response.
         let ephemeral = PrivateKey::random(&mut rng);
-        let (pk, yr, resp) = handshake::responder_begin(&self.private_key, &ephemeral, req)
+        let (pk, (recv, send), resp) = handshake::accept(&self.private_key, &ephemeral, req)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Check the initiator's public key to see if it's allowed.
         if self.allow_policy.keys().is_some_and(|keys| keys.contains(&pk)) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad handshake"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad initiator"));
         }
 
         // Send the handshake response.
         stream.write_all(&resp).await?;
-
-        // Read the initiator's key confirmation.
-        let mut confirm = [0u8; handshake::CONFIRM_LEN];
-        stream.read_exact(&mut confirm).await?;
-
-        // Confirm the initiator's key and fork the protocol.
-        let (recv, send) = handshake::responder_finalize(yr, confirm)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         Ok(Transport::new(Framed::new(
             stream,

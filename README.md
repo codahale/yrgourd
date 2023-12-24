@@ -72,76 +72,78 @@ connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 Both initiator and responder have [GLS254][] key pairs; the initiator knows the responder's public
 key.
 
-The handshake is [FHMQV-C][] with a slight twist: the initiator's ephemeral key is broadcast in the
-clear but the protocol is then keyed with the ECDH ephemeral shared secret and all other values are
-encypted.
+The handshake combines three layers:
 
-[FHMQV-C]: https://eprint.iacr.org/2009/408.pdf
+1. An ephemeral Diffie-Hellman KEM to encrypt the initiator's static public key.
+2. An [HOMQV][] pass with key confirmation from the initiator to the responder.
+3. An [HOMQV][] pass with key confirmation from the responder to the initiator.
 
-The initiator initiates a handshake by generating an ephemeral key pair and executing the following:
+[HOMQV]: https://eprint.iacr.org/2010/638.pdf
 
-```text
-function initiator_begin(initiator_static, initiator_ephemeral, responder_static.pub):
-  yg ← init("yrgourd.v1")
-  yg ← mix(yg, "responder-static-pub", responder_static.pub)
-  yg ← mix(yg, "initiator-ephemeral-pub", initiator_ephemeral.pub)
-  yg ← mix(yg, "ecdh-shared-secret", ecdh(responder_static.pub, initiator_ephemeral.priv))
-  (yg, v) ← encrypt(yg, "initiator-static-pub", initiator_static.pub)
-  return (yg, initiator_ephemeral.pub, v)
-```
-
-The initiator sends the plaintext ephemeral public key and the encrypted static public key to the
-responder. The responder executes the following:
+The initiator starts with a static private key `a` and the responder's static public key `B`. They
+initiate a handshake by generating an ephemeral private key `x` and executing the following:
 
 ```text
-function responder_begin(responder_static, responder_ephemeral, initiator_ephemeral.pub, v):
-  yg ← init("yrgourd.v1")
-  yg ← mix(yg, "responder-static-pub", responder_static.pub)
-  yg ← mix(yg, "initiator-ephemeral-pub", initiator_ephemeral.pub)
-  yg ← mix(yg, "ecdh-shared-secret", ecdh(initiator_ephemeral.pub, responder_static.pub))
-  (yg, initiator_static.pub) ← decrypt(yg, "initiator-static-pub", v)
-  (yg, x) ← encrypt(yg, "responder-ephemeral-pub", responder_ephemeral.pub)
-  (yg, d) ← gls254::scalar(derive(yg, "challenge-scalar-d", 16))
-  (yg, e) ← gls254::scalar(derive(yg, "challenge-scalar-e", 16))
-  s_b ← responder_ephemeral + e * responder_static;
-  k ← (initiator_ephemeral.pub + (initiator_static.pub * d)) * s_b;
-  yg ← mix("shared-secret", k)
-  (yg, y) ← derive(yg, "responder-confirmation", 16)
-  return (yg, x, y)
+function initiate(a, x, B):
+  X ← [x]G
+  yg ← init("yrgourd.v1")                             // Initialize a protocol.
+  yg ← mix(yg, "responder-static-pub", B)             // Mix in the responder's static public key.
+  yg ← mix(yg, "initiator-ephemeral-pub", X)          // Mix in the initiator's ephemeral public key.
+  yg ← mix(yg, "ecdh-shared-secret", [x]B))           // Mix in the ephemeral ECDH shared secret.
+  (yg, r) ← encrypt(yg, "initiator-static-pub", [a]G) // Encrypt the initiator's static public key.
+  (yg, e₀) ← derive(yg, "initiator-challenge", 16)    // Derive the initiator's challenge scalar.
+  k₀ ← [x + a * e₀]B                                  // Calculate the initiator's shared secret.
+  yg ← mix(yg, "initiator-shared-secret", k₀)         // Mix in the initiator's shared secret.
+  (yg, s) ← derive(yg, "initiator-confirmation", 16)  // Derive a key confirmation tag for the initiator.
+  return (yg, X, r, s)
 ```
 
-The responder sends the encrypted ephemeral public key and a key confirmation tag to the initiator.
+The initiator sends the plaintext ephemeral public key `X`, the encrypted static public key `r`, and
+the confirmation tag `s` to the responder.
+
+The responder starts with a static private key `b`. They accept a handshake by generating an
+ephemeral private key `y` and executing the following:
+
+```text
+function accept(b, y, X, r, s):
+  B ← [b]G
+  yg ← init("yrgourd.v1")                                // Initialize a protocol.
+  yg ← mix(yg, "responder-static-pub", B)                // Mix in the responder's static public key.
+  yg ← mix(yg, "initiator-ephemeral-pub", X)             // Mix in the initiator's ephemeral public key.
+  yg ← mix(yg, "ecdh-shared-secret", [b]X)               // Mix in the ephemeral ECDH shared secret.
+  (yg, A) ← decrypt(yg, "initiator-static-pub", r)       // Decrypt the initiator's static public key.
+  (yg, e₀) ← derive(yg, "initiator-challenge", 16)       // Re-derive the initiator's challenge scalar.
+  k₀ ← [b](X + [e₀]A)                                    // Calculate the initiator's shared secret.
+  yg ← mix(yg, "initiator-shared-secret", k₀)            // Mix in the initiator's shared secret.
+  (yg, s′) ← derive(yg, "initiator-confirmation", 16)    // Derive a counterfactual key confirmation tag for the initiator.
+  if s ≠ s′:                                             // Verify the initiator's key confirmation tag.
+    return ⟂
+  (yg, t) ← encrypt(yg, "responder-ephemeral-pub", [y]G) // Encrypt the responder's ephemeral public key.
+  (yg, e₁) ← derive(yg, "responder-challenge", 16)       // Derive the responder's challenge scalar.
+  k₁ ← [y + b * e₁]A                                     // Calculate the responder's shared secret.
+  yg ← mix(yg, "responder-shared-secret", k₁)            // Mix in the responder's shared secret.
+  (yg, u) ← derive(yg, "responder-confirmation", 16)     // Derive a key confirmation tag for the responder.
+  yg_recv ← mix(yg, "sender", "initiator")               // Fork the protocol into a receive/send pair.
+  yg_send ← mix(yg, "sender", "responder")
+  return (yg_recv, yg_send, t, u)
+```
+
+The responder sends the encrypted ephemeral public key `t` and the key confirmation tag `u` to the
+initiator.
 
 The initiator performs the following:
 
 ```text
-function initiator_finalize(yg, initiator_static, initiator_ephemeral, responder_static.pub, x, y):
-  (yg, responder_ephemeral.pub) ← decrypt(yg, "responder-ephemeral-pub", x)
-  (yg, d) ← gls254::scalar(derive(yg, "challenge-scalar-d", 16))
-  (yg, e) ← gls254::scalar(derive(yg, "challenge-scalar-e", 16))
-  s_a ← initiator_ephemeral + d * initiator_static;
-  k ← (responder_ephemeral.pub + (responder_static.pub * e)) * s_a;
-  yg ← mix("shared-secret", k)
-  (yg, y′) ← derive(yg, "responder-confirmation", 16)
-  if y ≠ y′:
-    return ⟂ 
-  (yg, z) ← derive(yg, "initiator-confirmation", 16)
-  yg_recv ← mix(yg, "sender", "responder")
+function finalize(yg, a, B, t, u):
+  (yg, Y) ← decrypt(yg, "responder-static-pub", t)    // Decrypt the responder's ephemeral public key.
+  (yg, e₁) ← derive(yg, "responder-challenge", 16)    // Re-derive the responder's challenge scalar.
+  k₁ ← [a](Y + [e₁]B)                                 // Calculate the responder's shared secret.
+  yg ← mix(yg, "responder-shared-secret", k₁)         // Mix in the responder's shared secret.
+  (yg, u′) ← derive(yg, "responder-confirmation", 16) // Derive a counterfactual key confirmation tag for the responder.
+  if u ≠ u′:                                          // Verify the responder's key confirmation tag.
+    return ⟂
+  yg_recv ← mix(yg, "sender", "responder")            // Fork the protocol into a receive/send.
   yg_send ← mix(yg, "sender", "initiator")
-  return (yg_recv, yg_send)
-```
-
-The initiator sends the key confirmation tag to the responder.
-
-The responder performs the following:
-
-```text
-function responder_finalize(yg, z):
-  (yg, z′) ← derive(yg, "initiator-confirmation", 16)
-  if z ≠ z′:
-    return ⟂ 
-  yg_recv ← mix(yg, "sender", "initiator")
-  yg_send ← mix(yg, "sender", "responder")
   return (yg_recv, yg_send)
 ```
 
