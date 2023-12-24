@@ -1,4 +1,4 @@
-use crrl::gls254::{Point, Scalar};
+use crrl::gls254::Scalar;
 use lockstitch::{subtle::ConstantTimeEq, Protocol, TAG_LEN};
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
@@ -63,10 +63,10 @@ pub fn responder_begin(
 
     // Mix the initiator's ephemeral public key into the protocol and parse it.
     yr.mix(b"initiator-ephemeral-pub", initiator_ephemeral);
-    let initiator_ephemeral = Point::decode(initiator_ephemeral)?;
+    let initiator_ephemeral = PublicKey::try_from(<&[u8]>::from(initiator_ephemeral)).ok()?;
 
     // Calculate the ephemeral shared secret and mix it into the protocol.
-    let zz = (responder_static.d * initiator_ephemeral).encode();
+    let zz = (responder_static.d * initiator_ephemeral.q).encode();
     yr.mix(b"ecdh-shared-secret", &zz);
 
     // Decrypt and parse the initiator's static public key.
@@ -91,7 +91,7 @@ pub fn responder_begin(
     let d = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-d")));
     let e = Scalar::from_u128(u128::from_le_bytes(yr.derive_array(b"challenge-scalar-e")));
     let k = (responder_ephemeral.d + e * responder_static.d)
-        * (initiator_ephemeral + (d * initiator_static.q));
+        * (initiator_ephemeral.q + (d * initiator_static.q));
     yr.mix(b"shared-secret", &k.encode());
 
     // Generate an authentication tag.
