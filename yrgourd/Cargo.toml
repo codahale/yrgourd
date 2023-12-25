@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bytes = "1.5.0"
 crrl = { version = "0.8.0", default-features = false, features = ["gls254", "std"] }
-futures = "0.3.29"
+futures = "0.3.30"
 hex = "0.4.3"
 lockstitch = "0.20.1"
 pin-project-lite = "0.2.13"
