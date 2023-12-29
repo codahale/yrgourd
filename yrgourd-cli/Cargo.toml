@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1.0.77"
-clap = { version = "4.4.11", features = ["deprecated", "derive"] }
+clap = { version = "4.4.12", features = ["deprecated", "derive"] }
 futures = "0.3.30"
 humantime = "2.1.0"
 rand = "0.8.5"
