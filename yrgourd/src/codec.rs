@@ -97,7 +97,7 @@ where
 
         // Encode the length field as a 3-byte big endian integer and then encrypt it.
         let mut buf = (n as u32).to_be_bytes();
-        self.send.encrypt(b"len", &mut buf[4 - LENGTH_FIELD_LEN..]);
+        self.send.encrypt("len", &mut buf[4 - LENGTH_FIELD_LEN..]);
         dst.extend_from_slice(&buf[4 - LENGTH_FIELD_LEN..]);
 
         // Add the frame type, the ratchet key, the payload, and an empty tag, then seal it.
@@ -108,7 +108,7 @@ where
         };
         self.buf.extend_from_slice(&item);
         self.buf.extend_from_slice(&[0u8; TAG_LEN]);
-        self.send.seal(b"frame", &mut self.buf);
+        self.send.seal("frame", &mut self.buf);
 
         // Append the sealed frame data and reset the buffer.
         dst.extend_from_slice(&self.buf);
@@ -116,7 +116,7 @@ where
 
         // Ratchet the protocol state, if needed.
         if let Some(ratchet) = ratchet {
-            self.send.mix(b"ratchet-shared", &(ratchet.d * self.remote.q).encode());
+            self.send.mix("ratchet-shared", &(ratchet.d * self.remote.q).encode());
         }
 
         Ok(())
@@ -136,7 +136,7 @@ impl<R> Decoder for Codec<R> {
         // If the length field hasn't been received yet and we have enough data for it, decrypt the
         // length field in place and flag that it's been received.
         if !self.recv_len {
-            self.recv.decrypt(b"len", &mut src[..LENGTH_FIELD_LEN]);
+            self.recv.decrypt("len", &mut src[..LENGTH_FIELD_LEN]);
             self.recv_len = true;
         }
 
@@ -152,7 +152,7 @@ impl<R> Decoder for Codec<R> {
         };
 
         // Open the frame data and strip the tag or return an error.
-        if self.recv.open(b"frame", &mut data).is_none() {
+        if self.recv.open("frame", &mut data).is_none() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid ciphertext"));
         }
         data.truncate(data.len() - TAG_LEN);
@@ -167,7 +167,7 @@ impl<R> Decoder for Codec<R> {
                     io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key")
                 })?;
                 // Mix the ratchet shared secret into the recv protocol.
-                self.recv.mix(b"ratchet-shared", &(self.local.d * rk.q).encode());
+                self.recv.mix("ratchet-shared", &(self.local.d * rk.q).encode());
                 // Return the frame's payload.
                 Ok(Some(data))
             }

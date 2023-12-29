@@ -9,7 +9,7 @@ bytes = "1.5.0"
 crrl = { version = "0.8.0", default-features = false, features = ["gls254", "std"] }
 futures = "0.3.30"
 hex = "0.4.3"
-lockstitch = "0.20.1"
+lockstitch = "0.21.0"
 pin-project-lite = "0.2.13"
 rand_core = "0.6.4"
 thiserror = "1.0.52"
