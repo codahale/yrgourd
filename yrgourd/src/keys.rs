@@ -4,7 +4,6 @@ use std::{
 };
 
 use crrl::gls254::{Point, Scalar};
-use lockstitch::subtle::ConstantTimeEq;
 use rand_core::CryptoRngCore;
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
@@ -64,7 +63,7 @@ impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
         // Compare public keys in constant time to avoid timing attacks on initiator restriction
         // policies.
-        self.encoded.ct_eq(&other.encoded).into()
+        lockstitch::ct_eq(&self.encoded, &other.encoded)
     }
 }
 
