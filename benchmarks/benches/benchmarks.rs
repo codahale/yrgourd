@@ -1,6 +1,6 @@
 #![allow(elided_lifetimes_in_paths)]
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use rand::rngs::OsRng;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader};
 use yrgourd::{Initiator, PrivateKey, Responder};
@@ -53,7 +53,7 @@ fn transfer(c: &mut Criterion) {
     let mut g = c.benchmark_group("transfer");
     for &(len, id) in LENS {
         g.throughput(Throughput::Bytes(len));
-        g.bench_with_input(BenchmarkId::from_parameter(id), &len, |b, &len| {
+        g.bench_with_input(id, &len, |b, &len| {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
