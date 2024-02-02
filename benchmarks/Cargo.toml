@@ -5,14 +5,14 @@ publish = false
 edition = "2021"
 
 [dependencies]
-divan = "0.1.11"
+criterion = { version = "0.5.1", features = ["async", "async_tokio"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 tokio = { version = "1.35.1", features = ["full"] }
 yrgourd = { path = "../yrgourd" }
 
 [[bench]]
-name = "benches"
+name = "benchmarks"
 path = "benches/benchmarks.rs"
 harness = false
 
