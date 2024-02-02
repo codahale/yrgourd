@@ -173,21 +173,32 @@ two minutes.
 On my M2 MacBook Air:
 
 ```text
-Timer precision: 41.66 ns
-benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  113 µs        │ 595.7 µs      │ 143 µs        │ 151.8 µs      │ 6586    │ 6586
-╰─ transfer   21.71 ms      │ 31.32 ms      │ 22.41 ms      │ 22.71 ms      │ 100     │ 100
-              4.497 GiB/s   │ 3.117 GiB/s   │ 4.356 GiB/s   │ 4.298 GiB/s   │         │
+handshake               time:   [80.943 µs 81.003 µs 81.066 µs]
+
+transfer/1MiB           time:   [388.06 µs 388.62 µs 389.40 µs]
+                        thrpt:  [2.5079 GiB/s 2.5129 GiB/s 2.5166 GiB/s]
+transfer/10MiB          time:   [2.4058 ms 2.4116 ms 2.4175 ms]
+                        thrpt:  [4.0395 GiB/s 4.0494 GiB/s 4.0592 GiB/s]
+transfer/100MiB         time:   [21.316 ms 21.378 ms 21.443 ms]
+                        thrpt:  [4.5542 GiB/s 4.5680 GiB/s 4.5815 GiB/s]
+transfer/1GiB           time:   [215.44 ms 216.46 ms 217.44 ms]
+                        thrpt:  [4.5991 GiB/s 4.6199 GiB/s 4.6416 GiB/s]
+
 ```
 
 On a GCP `c3-standard-4` (`-C target-cpu=native`):
 
 ```text
-Timer precision: 24.44 ns
-benches       fastest       │ slowest       │ median        │ mean          │ samples │ iters
-├─ handshake  144.3 µs      │ 1.186 ms      │ 172.8 µs      │ 175.5 µs      │ 5698    │ 5698
-╰─ transfer   35.06 ms      │ 39 ms         │ 37.05 ms      │ 36.79 ms      │ 100     │ 100
-              2.784 GiB/s   │ 2.503 GiB/s   │ 2.635 GiB/s   │ 2.654 GiB/s   │         │
+handshake               time:   [118.06 µs 118.31 µs 118.56 µs]
+
+transfer/1MiB           time:   [529.32 µs 530.28 µs 531.34 µs]
+                        thrpt:  [1.8379 GiB/s 1.8416 GiB/s 1.8449 GiB/s]
+transfer/10MiB          time:   [3.5231 ms 3.5342 ms 3.5454 ms]
+                        thrpt:  [2.7545 GiB/s 2.7632 GiB/s 2.7718 GiB/s]
+transfer/100MiB         time:   [33.904 ms 34.018 ms 34.130 ms]
+                        thrpt:  [2.8613 GiB/s 2.8707 GiB/s 2.8804 GiB/s]
+transfer/1GiB           time:   [342.90 ms 343.76 ms 344.61 ms]
+                        thrpt:  [2.9018 GiB/s 2.9090 GiB/s 2.9163 GiB/s]
 ```
 
 `handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
