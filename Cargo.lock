@@ -713,12 +713,13 @@ dependencies = [
 
 [[package]]
 name = "lockstitch"
-version = "0.25.1"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e9394174525b6221873e64b017bd5c04132ae0fd3c7dde490fb64963ec1175a"
+checksum = "f0faa67135be6c03ba43d8e69db911f1424a7f20ad21102de6a7fc00d1aada0c"
 dependencies = [
  "cmov",
  "sha3",
+ "zeroize",
 ]
 
 [[package]]
@@ -1580,3 +1581,9 @@ dependencies = [
  "tokio-util",
  "yrgourd",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"
