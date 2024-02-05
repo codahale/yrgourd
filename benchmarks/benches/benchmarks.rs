@@ -16,12 +16,12 @@ fn setup() -> (Responder, Initiator, yrgourd::PublicKey, io::DuplexStream, io::D
 }
 
 fn handshake(c: &mut Criterion) {
-    c.bench_function("handshake", move |b| {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("should have tokio/rt-multi-thread enabled");
-        b.to_async(rt).iter_batched(
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("should have tokio/rt-multi-thread enabled");
+    c.bench_function("handshake", |b| {
+        b.to_async(&rt).iter_batched(
             setup,
             |(mut responder, mut initiator, responder_pub, client, server)| async move {
                 let responder = tokio::spawn(async move {
@@ -34,8 +34,8 @@ fn handshake(c: &mut Criterion) {
                     t.shutdown().await
                 });
 
-                responder.await??;
-                initiator.await?
+                responder.await.unwrap().unwrap();
+                initiator.await.unwrap().unwrap();
             },
             criterion::BatchSize::SmallInput,
         );
@@ -50,15 +50,16 @@ const LENS: &[(u64, &str)] = &[
 ];
 
 fn transfer(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("should have tokio/rt-multi-thread enabled");
+
     let mut g = c.benchmark_group("transfer");
     for &(len, id) in LENS {
         g.throughput(Throughput::Bytes(len));
-        g.bench_with_input(id, &len, |b, &len| {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("should have tokio/rt-multi-thread enabled");
-            b.to_async(rt).iter_batched(
+        g.bench_function(id, |b| {
+            b.to_async(&rt).iter_batched(
                 setup,
                 |(mut responder, mut initiator, responder_pub, client, server)| async move {
                     let responder = tokio::spawn(async move {
@@ -77,8 +78,8 @@ fn transfer(c: &mut Criterion) {
                         t.shutdown().await
                     });
 
-                    responder.await??;
-                    initiator.await?
+                    responder.await.unwrap().unwrap();
+                    initiator.await.unwrap().unwrap();
                 },
                 criterion::BatchSize::SmallInput,
             );
