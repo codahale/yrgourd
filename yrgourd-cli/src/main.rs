@@ -220,7 +220,7 @@ async fn proxy(
     let listener = TcpListener::bind(from).await?;
     while let Ok((mut inbound, _)) = listener.accept().await {
         let outbound = TcpStream::connect(to.clone()).await?;
-        let mut outbound = initiator.handshake(OsRng, outbound, server_public_key).await?;
+        let mut outbound = initiator.handshake(OsRng, outbound, server_public_key.clone()).await?;
         tokio::spawn(async move {
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
@@ -249,7 +249,7 @@ async fn reverse_proxy(
 
     if !allowed_clients.is_empty() {
         responder.allow_policy =
-            AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
+            AllowPolicy::AllowedInitiators(allowed_clients.iter().cloned().collect());
     }
 
     let listener = TcpListener::bind(from).await?;
@@ -302,7 +302,7 @@ async fn sink(
     responder.max_ratchet_bytes = max_ratchet_bytes;
     if !allowed_clients.is_empty() {
         responder.allow_policy =
-            AllowPolicy::AllowedInitiators(allowed_clients.iter().copied().collect());
+            AllowPolicy::AllowedInitiators(allowed_clients.iter().cloned().collect());
     }
     loop {
         let (socket, _) = listener.accept().await?;

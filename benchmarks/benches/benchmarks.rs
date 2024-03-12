@@ -7,7 +7,7 @@ use yrgourd::{Initiator, PrivateKey, Responder};
 
 fn setup() -> (Responder, Initiator, yrgourd::PublicKey, io::DuplexStream, io::DuplexStream) {
     let responder_key = PrivateKey::random(OsRng);
-    let responder_pub = responder_key.public_key;
+    let responder_pub = responder_key.public_key.clone();
     let responder = Responder::new(responder_key);
     let initiator_key = PrivateKey::random(OsRng);
     let initiator = Initiator::new(initiator_key);

@@ -52,8 +52,7 @@ impl Initiator {
         R: CryptoRngCore,
     {
         // Initiate a handshake.
-        let ephemeral = PrivateKey::random(&mut rng);
-        let (yr, req) = handshake::initiate(&self.private_key, &ephemeral, &responder);
+        let (yr, ie, req) = handshake::initiate(&mut rng, &self.private_key, &responder);
         stream.write_all(&req).await?;
 
         // Read the handshake response from the responder.
@@ -61,7 +60,7 @@ impl Initiator {
         stream.read_exact(&mut resp).await?;
 
         // Finalize the handshake.
-        let (recv, send) = handshake::finalize(&self.private_key, &ephemeral, yr, resp)
+        let (recv, send) = handshake::finalize(&self.private_key, ie, yr, resp)
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"))?;
 
         Ok(Transport::new(Framed::new(
@@ -142,8 +141,7 @@ impl Responder {
         stream.read_exact(&mut req).await?;
 
         // Accept the handshake and generate a response.
-        let ephemeral = PrivateKey::random(&mut rng);
-        let (pk, (recv, send), resp) = handshake::accept(&self.private_key, &ephemeral, req)
+        let (pk, (recv, send), resp) = handshake::accept(&mut rng, &self.private_key, req)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Check the initiator's public key to see if it's allowed.
@@ -183,7 +181,7 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let mut initiator = Initiator::new(PrivateKey::random(OsRng));
         let responder_key = PrivateKey::random(&mut rng);
-        let responder_pub = responder_key.public_key;
+        let responder_pub = responder_key.public_key.clone();
         let mut responder = Responder::new(responder_key);
 
         let (initiator_conn, responder_conn) = io::duplex(64);
@@ -222,7 +220,7 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
         let mut initiator = Initiator::new(PrivateKey::random(OsRng));
         let responder_key = PrivateKey::random(&mut rng);
-        let responder_pub = responder_key.public_key;
+        let responder_pub = responder_key.public_key.clone();
         let mut responder = Responder::new(responder_key);
 
         let (initiator_conn, responder_conn) = io::duplex(64);
@@ -262,7 +260,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn large_transfer() -> io::Result<()> {
         let responder_key = PrivateKey::random(OsRng);
-        let responder_pub = responder_key.public_key;
+        let responder_pub = responder_key.public_key.clone();
         let mut responder = Responder::new(responder_key);
         let initiator_key = PrivateKey::random(OsRng);
         let mut initiator = Initiator::new(initiator_key);
@@ -347,7 +345,7 @@ mod tests {
             |(s0, s1, s2, data)| {
                 let mut rng = ChaChaRng::seed_from_u64(s0);
                 let responder_key = PrivateKey::random(&mut rng);
-                let responder_pub = responder_key.public_key;
+                let responder_pub = responder_key.public_key.clone();
                 let mut responder = Responder::new(responder_key);
                 let initiator_key = PrivateKey::random(&mut rng);
                 let mut initiator = Initiator::new(initiator_key);

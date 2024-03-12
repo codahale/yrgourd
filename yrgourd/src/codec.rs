@@ -2,11 +2,14 @@ use std::time::{Duration, Instant};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use lockstitch::{Protocol, TAG_LEN};
+use ml_kem::{Decapsulate as _, Encapsulate as _};
 use rand_core::CryptoRngCore;
 use tokio::io;
 use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
-use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
+use crate::keys::{PrivateKey, PublicKey};
+
+const RATCHET_PAYLOAD_LEN: usize = 1088 + 32;
 
 /// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte big-endian length
 /// prefix, then an encrypted payload, then a 16-byte authenticator tag.
@@ -80,8 +83,16 @@ where
                 self.next_ratchet_at_bytes = self.max_ratchet_bytes;
                 self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
 
-                // Generate a ratchet key pair.
-                (Some(PrivateKey::random(&mut self.rng)), FrameType::KeyAndData)
+                // Generate a new ephemeral X25519 private key.
+                let dk = x25519_dalek::EphemeralSecret::random_from_rng(&mut self.rng);
+                let ek = x25519_dalek::PublicKey::from(&dk);
+
+                // Generate a new ML-KEM-768 encapsulated key.
+                let (ct, ss) =
+                    self.remote.ek_pq.encapsulate(&mut self.rng).expect("should encapsulate");
+
+                // Collect the X25519 key pair and the ML-KEM-768 ciphertext/shared secret pair.
+                (Some((dk, ek, ct, ss)), FrameType::KeyAndData)
             } else {
                 (None, FrameType::Data)
             };
@@ -100,11 +111,13 @@ where
         self.send.encrypt("len", &mut buf[4 - LENGTH_FIELD_LEN..]);
         dst.extend_from_slice(&buf[4 - LENGTH_FIELD_LEN..]);
 
-        // Add the frame type, the ratchet key, the payload, and an empty tag, then seal it.
+        // Add the frame type, the ratchet payload, the payload, and an empty tag, then seal it.
         self.buf.reserve(n);
         self.buf.put_u8(frame_type.into());
-        if let Some(ref ratchet) = ratchet {
-            self.buf.extend_from_slice(&ratchet.public_key.encoded);
+        if let Some(&(_, ek, ct, _)) = ratchet.as_ref() {
+            // Send the X25519 public key and the ML-KEM-768 ciphertext.
+            self.buf.extend_from_slice(ek.as_bytes());
+            self.buf.extend_from_slice(ct.as_ref());
         };
         self.buf.extend_from_slice(&item);
         self.buf.extend_from_slice(&[0u8; TAG_LEN]);
@@ -115,8 +128,9 @@ where
         self.buf.clear();
 
         // Ratchet the protocol state, if needed.
-        if let Some(ratchet) = ratchet {
-            self.send.mix("ratchet-shared", &(ratchet.d * self.remote.q).encode());
+        if let Some((dk, _, _, ss)) = ratchet {
+            self.send.mix("ratchet-x25519", dk.diffie_hellman(&self.remote.ek_c).as_bytes());
+            self.send.mix("ratchet-ml-kem-768", &ss);
         }
 
         Ok(())
@@ -161,13 +175,19 @@ impl<R> Decoder for Codec<R> {
         match FrameType::try_from(data.split_to(1)[0]) {
             Ok(FrameType::Data) => Ok(Some(data)), // Just return the frame's payload.
             Ok(FrameType::KeyAndData) => {
-                // Split off and decode the ratchet public key.
-                let rk = data.split_to(PUBLIC_KEY_LEN);
-                let rk = PublicKey::try_from(rk.as_ref()).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "invalid ratchet key")
-                })?;
+                // Split off and decode the ratchet payload.
+                let ratchet = data.split_to(RATCHET_PAYLOAD_LEN);
+                let (ek, ct) = ratchet.split_at(32);
+                let ek = x25519_dalek::PublicKey::from(
+                    <[u8; 32]>::try_from(ek).expect("should be 32 bytes"),
+                );
+                let ct = ml_kem::Ciphertext::<ml_kem::MlKem768>::clone_from_slice(ct);
+                let ss = self.local.dk_pq.decapsulate(&ct).expect("should decapsulate");
+
                 // Mix the ratchet shared secret into the recv protocol.
-                self.recv.mix("ratchet-shared", &(self.local.d * rk.q).encode());
+                self.recv.mix("ratchet-x25519", self.local.dk_c.diffie_hellman(&ek).as_bytes());
+                self.recv.mix("ratchet-ml-kem-768", &ss);
+
                 // Return the frame's payload.
                 Ok(Some(data))
             }
@@ -195,7 +215,7 @@ impl FrameType {
     const fn len(&self) -> usize {
         1 + match self {
             FrameType::Data => 0,
-            FrameType::KeyAndData => PUBLIC_KEY_LEN,
+            FrameType::KeyAndData => RATCHET_PAYLOAD_LEN,
         }
     }
 }
