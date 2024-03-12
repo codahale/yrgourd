@@ -14,7 +14,7 @@ pub const PUBLIC_KEY_LEN: usize = 1184 + 32;
 /// The length of an encoded private key in bytes.
 pub const PRIVATE_KEY_LEN: usize = PUBLIC_KEY_LEN + 2400 + 32;
 
-/// The GLS254 public key of a Yrgourd party.
+/// The public key of a Yrgourd party.
 #[derive(Debug, Clone)]
 pub struct PublicKey {
     /// The ML-KEM-768 encrypting key.
@@ -73,7 +73,7 @@ impl PartialEq for PublicKey {
     }
 }
 
-/// The GLS254 private key of a Yrgourd party.
+/// The private key of a Yrgourd party.
 #[derive(Clone)]
 pub struct PrivateKey {
     /// The ML-KEM decrypting key.
