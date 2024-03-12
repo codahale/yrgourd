@@ -18,10 +18,10 @@ pub const PRIVATE_KEY_LEN: usize = PUBLIC_KEY_LEN + 2400 + 32;
 #[derive(Debug, Clone)]
 pub struct PublicKey {
     /// The ML-KEM-768 encrypting key.
-    pub ek_pq: ml_kem::kem::EncapsulationKey<ml_kem::MlKem768Params>,
+    pub(crate) ek_pq: ml_kem::kem::EncapsulationKey<ml_kem::MlKem768Params>,
 
     /// The X25519 encrypting key.
-    pub ek_c: x25519_dalek::PublicKey,
+    pub(crate) ek_c: x25519_dalek::PublicKey,
 
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
 }
