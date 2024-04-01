@@ -10,7 +10,7 @@ futures = "0.3.30"
 hex = "0.4.3"
 lockstitch = "0.25.2"
 ml-kem = "0.1.0-alpha"
-pin-project-lite = "0.2.13"
+pin-project-lite = "0.2.14"
 rand_core = "0.6.4"
 thiserror = "1.0.58"
 tokio = { version = "1.37.0", default-features = false, features = ["bytes", "io-util"] }
