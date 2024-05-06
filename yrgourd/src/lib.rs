@@ -311,7 +311,7 @@ mod tests {
                 let responder = tokio::spawn(async move {
                     let rng = ChaChaRng::seed_from_u64(s1);
                     // Don't wait for more than 100ms for the handshake to complete.
-                    let t = tokio::time::timeout(
+                    let t = time::timeout(
                         Duration::from_millis(100),
                         responder.handshake(rng, responder_conn),
                     )
@@ -357,7 +357,7 @@ mod tests {
                         let rng = ChaChaRng::seed_from_u64(s1);
                         let mut t = responder.handshake(rng, server).await.unwrap();
                         // Don't wait more than 100ms for the copy to complete.
-                        let res = tokio::time::timeout(
+                        let res = time::timeout(
                             Duration::from_millis(100),
                             io::copy(&mut t, &mut io::sink()),
                         )
