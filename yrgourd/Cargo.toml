@@ -6,10 +6,10 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 bytes = "1.6.0"
+fips203 = { version = "0.2.1", default-features = false, features = ["ml-kem-768"] }
 futures = "0.3.30"
 hex = "0.4.3"
 lockstitch = "0.25.2"
-ml-kem = "0.1.0"
 pin-project-lite = "0.2.14"
 rand_core = "0.6.4"
 thiserror = "1.0.60"

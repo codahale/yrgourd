@@ -1,5 +1,8 @@
+use fips203::{
+    ml_kem_768,
+    traits::{Decaps, Encaps, SerDes},
+};
 use lockstitch::{Protocol, TAG_LEN};
-use ml_kem::{Decapsulate as _, Encapsulate as _};
 use rand_core::CryptoRngCore;
 
 use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
@@ -38,10 +41,10 @@ pub fn initiate(
     yr.mix("rs", &rs.encoded);
 
     // Generate a new ML-KEM-768 encapsulated key.
-    let (ct, ss) = rs.ek_pq.encapsulate(&mut rng).expect("should encapsulate");
-    yr.mix("rs-ml-kem-ct", &ct);
-    yr.mix("rs-ml-kem-ss", &ss);
-    resp_ct.copy_from_slice(&ct);
+    let (ss, ct) = rs.ek_pq.try_encaps_with_rng(&mut rng).expect("should encapsulate");
+    yr.mix("rs-ml-kem-ct", &ct.clone().into_bytes());
+    yr.mix("rs-ml-kem-ss", &ss.into_bytes());
+    resp_ct.copy_from_slice(&ct.into_bytes());
 
     // Encrypt the initiator's ephemeral public key.
     resp_ie.copy_from_slice(EphemeralPublicKey::from(&ie).as_bytes());
@@ -81,10 +84,12 @@ pub fn accept(
     yr.mix("rs", &rs.public_key.encoded);
 
     // Decapsulate the ML-KEM-768 shared secret.
-    let ct = ml_kem::Ciphertext::<ml_kem::MlKem768>::clone_from_slice(req_ct);
-    let ss = rs.dk_pq.decapsulate(&ct).expect("should decapsulate");
-    yr.mix("rs-ml-kem-ct", &ct);
-    yr.mix("rs-ml-kem-ss", &ss);
+    let ct =
+        ml_kem_768::CipherText::try_from_bytes(req_ct.try_into().expect("should be 1088 bytes"))
+            .expect("should be valid ciphertext");
+    let ss = rs.dk_pq.try_decaps(&ct).expect("should decapsulate");
+    yr.mix("rs-ml-kem-ct", &ct.into_bytes());
+    yr.mix("rs-ml-kem-ss", &ss.into_bytes());
 
     // Decrypt the initiator's ephemeral public key into the protocol and parse it.
     yr.decrypt("re", req_ie);
@@ -104,10 +109,10 @@ pub fn accept(
     let (resp_ct, resp_re) = resp.split_at_mut(1088);
 
     // Generate a new ML-KEM-768 encapsulated key.
-    let (ct, ss) = is.ek_pq.encapsulate(&mut rng).expect("should encapsulate");
-    yr.mix("is-ml-kem-ct", &ct);
-    yr.mix("is-ml-kem-ss", &ss);
-    resp_ct.copy_from_slice(&ct);
+    let (ss, ct) = is.ek_pq.try_encaps_with_rng(&mut rng).expect("should encapsulate");
+    yr.mix("is-ml-kem-ct", &ct.clone().into_bytes());
+    yr.mix("is-ml-kem-ss", &ss.into_bytes());
+    resp_ct.copy_from_slice(&ct.into_bytes());
 
     // Encrypt the responder's ephemeral public key.
     resp_re[..32].copy_from_slice(EphemeralPublicKey::from(&re).as_bytes());
@@ -139,10 +144,12 @@ pub fn finalize(
     let (resp_ct, resp_re) = resp.split_at_mut(1088);
 
     // Decapsulate the ML-KEM-768 shared secret.
-    let ct = ml_kem::Ciphertext::<ml_kem::MlKem768>::clone_from_slice(resp_ct);
-    let ss = is.dk_pq.decapsulate(&ct).expect("should decapsulate");
-    yr.mix("is-ml-kem-ct", &ct);
-    yr.mix("is-ml-kem-ss", &ss);
+    let ct =
+        ml_kem_768::CipherText::try_from_bytes(resp_ct.try_into().expect("should be 1088 bytes"))
+            .expect("should be valid ciphertext");
+    let ss = is.dk_pq.try_decaps(&ct).expect("should decapsulate");
+    yr.mix("is-ml-kem-ct", &ct.into_bytes());
+    yr.mix("is-ml-kem-ss", &ss.into_bytes());
 
     // Decrypt and decode the responder's ephemeral public key.
     let re = EphemeralPublicKey::from(

@@ -477,6 +477,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1676f435fc1dadde4d03e43f5d62b259e1ce5f40bd4ffb21db2b42ebe59c1382"
 
 [[package]]
+name = "fips203"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a2ada2df3a11170def1561a9149f793c0425f4ae48a01ba16e332a2c7c2482d"
+dependencies = [
+ "rand_core",
+ "sha3",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -633,15 +645,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
-name = "hybrid-array"
-version = "0.2.0-rc.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53668f5da5a41d9eaf4bf7064be46d1ebe6a4e1ceed817f387587b18f2b51047"
-dependencies = [
- "typenum",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -758,17 +761,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "ml-kem"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a0cf27823a0aec20c7f67bf172275781a042a1f086a2134d8cbbf95e8843662"
-dependencies = [
- "hybrid-array",
- "rand_core",
- "sha3",
 ]
 
 [[package]]
@@ -1587,10 +1579,10 @@ version = "0.1.0"
 dependencies = [
  "bolero",
  "bytes",
+ "fips203",
  "futures",
  "hex",
  "lockstitch",
- "ml-kem",
  "pin-project-lite",
  "rand_chacha",
  "rand_core",

@@ -3,7 +3,10 @@ use std::{
     str::FromStr,
 };
 
-use ml_kem::{EncodedSizeUser as _, KemCore as _};
+use fips203::{
+    ml_kem_768,
+    traits::{KeyGen, SerDes},
+};
 use rand_core::CryptoRngCore;
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
@@ -15,15 +18,25 @@ pub const PUBLIC_KEY_LEN: usize = 1184 + 32;
 pub const PRIVATE_KEY_LEN: usize = PUBLIC_KEY_LEN + 2400 + 32;
 
 /// The public key of a Yrgourd party.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PublicKey {
     /// The ML-KEM-768 encrypting key.
-    pub(crate) ek_pq: ml_kem::kem::EncapsulationKey<ml_kem::MlKem768Params>,
+    pub(crate) ek_pq: ml_kem_768::EncapsKey,
 
     /// The X25519 encrypting key.
     pub(crate) ek_c: x25519_dalek::PublicKey,
 
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
+}
+
+impl Debug for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PublicKey")
+            .field("ek_pq", &self.ek_pq.clone().into_bytes())
+            .field("ek_c", &self.ek_c)
+            .field("encoded", &self.encoded)
+            .finish()
+    }
 }
 
 impl TryFrom<&[u8]> for PublicKey {
@@ -32,9 +45,8 @@ impl TryFrom<&[u8]> for PublicKey {
     fn try_from(encoded: &[u8]) -> Result<Self, Self::Error> {
         let encoded: [u8; PUBLIC_KEY_LEN] = encoded.try_into().map_err(|_| ())?;
         let (ek_pq, ek_c) = encoded.split_at(1184);
-        let ek_pq = ml_kem::kem::EncapsulationKey::<ml_kem::MlKem768Params>::from_bytes(
-            &ek_pq.try_into().map_err(|_| ())?,
-        );
+        let ek_pq = ml_kem_768::EncapsKey::try_from_bytes(ek_pq.try_into().map_err(|_| ())?)
+            .map_err(|_| ())?;
         let ek_c = x25519_dalek::PublicKey::from(<[u8; 32]>::try_from(ek_c).map_err(|_| ())?);
         Ok(PublicKey { ek_pq, ek_c, encoded })
     }
@@ -77,7 +89,7 @@ impl PartialEq for PublicKey {
 #[derive(Clone)]
 pub struct PrivateKey {
     /// The ML-KEM decrypting key.
-    pub(crate) dk_pq: ml_kem::kem::DecapsulationKey<ml_kem::MlKem768Params>,
+    pub(crate) dk_pq: ml_kem_768::DecapsKey,
 
     /// The X25519 decrypting key.
     pub(crate) dk_c: x25519_dalek::StaticSecret,
@@ -101,17 +113,18 @@ impl Debug for PrivateKey {
 impl PrivateKey {
     /// Generates a random private key using the given RNG.
     pub fn random(mut rng: impl CryptoRngCore) -> PrivateKey {
-        let (dk_pq, ek_pq) = ml_kem::kem::Kem::<ml_kem::MlKem768Params>::generate(&mut rng);
+        let (ek_pq, dk_pq) =
+            ml_kem_768::KG::try_keygen_with_rng(&mut rng).expect("should generate");
         let dk_c = x25519_dalek::StaticSecret::random_from_rng(&mut rng);
         let ek_c = x25519_dalek::PublicKey::from(&dk_c);
 
         let mut pub_encoded = Vec::with_capacity(PUBLIC_KEY_LEN);
-        pub_encoded.extend_from_slice(&ek_pq.as_bytes());
+        pub_encoded.extend_from_slice(&ek_pq.clone().into_bytes());
         pub_encoded.extend_from_slice(ek_c.as_bytes());
 
         let mut priv_encoded = Vec::with_capacity(PRIVATE_KEY_LEN);
         priv_encoded.extend_from_slice(&pub_encoded);
-        priv_encoded.extend_from_slice(&dk_pq.as_bytes());
+        priv_encoded.extend_from_slice(&dk_pq.clone().into_bytes());
         priv_encoded.extend_from_slice(dk_c.as_bytes());
 
         PrivateKey {
@@ -139,9 +152,10 @@ impl FromStr for PrivateKey {
 
         let public_key =
             PublicKey::try_from(pub_key).map_err(|_| ParsePrivateKeyError::InvalidPrivateKey)?;
-        let dk_pq = ml_kem::kem::DecapsulationKey::<ml_kem::MlKem768Params>::from_bytes(
-            &dk_pq.try_into().expect("should be ML-KEM-786 private key sized"),
-        );
+        let dk_pq = ml_kem_768::DecapsKey::try_from_bytes(
+            dk_pq.try_into().expect("should be ML-KEM-786 private key sized"),
+        )
+        .map_err(|_| ParsePrivateKeyError::InvalidPrivateKey)?;
         let dk_c = x25519_dalek::StaticSecret::from(
             <[u8; 32]>::try_from(dk_c).expect("should be X25519 private key sized"),
         );
