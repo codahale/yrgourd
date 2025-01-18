@@ -5,13 +5,13 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-anyhow = "1.0.86"
-clap = { version = "4.5.7", features = ["deprecated", "derive"] }
-futures = "0.3.30"
+anyhow = "1.0.95"
+clap = { version = "4.5.26", features = ["deprecated", "derive"] }
+futures = "0.3.31"
 humantime = "2.1.0"
 rand = "0.8.5"
-tokio = { version = "1.38.0", features = ["full", "tracing"] }
-tokio-util = { version = "0.7.11" }
+tokio = { version = "1.43.0", features = ["full", "tracing"] }
+tokio-util = { version = "0.7.13" }
 yrgourd = { path = "../yrgourd" }
 
 [lints]

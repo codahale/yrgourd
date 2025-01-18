@@ -6,21 +6,21 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 bytes = "1.6.0"
-fips203 = { version = "0.2.1", default-features = false, features = ["ml-kem-768"] }
-futures = "0.3.30"
+fips203 = { version = "0.4.2", default-features = false, features = ["ml-kem-768"] }
+futures = "0.3.31"
 hex = "0.4.3"
-lockstitch = "0.25.2"
-pin-project-lite = "0.2.14"
+lockstitch = "0.25.3"
+pin-project-lite = "0.2.16"
 rand_core = "0.6.4"
-thiserror = "1.0.61"
-tokio = { version = "1.38.0", default-features = false, features = ["bytes", "io-util"] }
-tokio-util = { version = "0.7.11", default-features = false, features = ["codec"] }
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", default-features = false, features = ["bytes", "io-util"] }
+tokio-util = { version = "0.7.13", default-features = false, features = ["codec"] }
 x25519-dalek = { version = "2.0.1", features = ["reusable_secrets", "static_secrets"] }
 
 [dev-dependencies]
-bolero = "0.11.1"
+bolero = "0.12.0"
 rand_chacha = "0.3.1"
-tokio = { version = "1.38.0", default-features = false, features = ["full"] }
+tokio = { version = "1.43.0", default-features = false, features = ["full"] }
 
 [lints]
 workspace = true
