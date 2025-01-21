@@ -52,16 +52,17 @@ impl Initiator {
         R: CryptoRngCore,
     {
         // Initiate a handshake.
-        let (yr, ie, req) = handshake::initiate(&mut rng, &self.private_key, &responder);
-        stream.write_all(&req).await?;
+        let (state, init_hello) =
+            handshake::initiate(&mut rng, &self.private_key.public_key, &responder);
+        stream.write_all(&init_hello).await?;
 
         // Read the handshake response from the responder.
-        let mut resp = [0u8; handshake::RESPONSE_LEN];
-        stream.read_exact(&mut resp).await?;
+        let mut resp_hello = [0u8; handshake::RESP_LEN];
+        stream.read_exact(&mut resp_hello).await?;
 
-        // Finalize the handshake.
-        let (recv, send) = handshake::finalize(&self.private_key, ie, yr, resp)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "invalid handshake"))?;
+        // Confirm the handshake.
+        let (recv, send) = handshake::finalize(state, &self.private_key, resp_hello)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, "bad handshake"))?;
 
         Ok(Transport::new(Framed::new(
             stream,
@@ -137,27 +138,28 @@ impl Responder {
         R: CryptoRngCore,
     {
         // Read the handshake request from the initiator.
-        let mut req = [0u8; handshake::REQUEST_LEN];
-        stream.read_exact(&mut req).await?;
+        let mut init_hello = [0u8; handshake::REQ_LEN];
+        stream.read_exact(&mut init_hello).await?;
 
         // Accept the handshake and generate a response.
-        let (pk, (recv, send), resp) = handshake::accept(&mut rng, &self.private_key, req)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
+        let ((recv, send), is, resp_hello) =
+            handshake::accept(&mut rng, &self.private_key, init_hello)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad handshake"))?;
 
         // Check the initiator's public key to see if it's allowed.
-        if self.allow_policy.keys().is_some_and(|keys| keys.contains(&pk)) {
+        if self.allow_policy.keys().is_some_and(|keys| keys.contains(&is)) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "bad initiator"));
         }
 
         // Send the handshake response.
-        stream.write_all(&resp).await?;
+        stream.write_all(&resp_hello).await?;
 
         Ok(Transport::new(Framed::new(
             stream,
             Codec::new(
                 rng,
                 self.private_key.clone(),
-                pk,
+                is,
                 recv,
                 send,
                 self.max_ratchet_time,

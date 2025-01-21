@@ -4,7 +4,7 @@ use std::{
 };
 
 use fips203::{
-    ml_kem_768,
+    ml_kem_768::{self, KG},
     traits::{KeyGen, SerDes},
 };
 use rand_core::CryptoRngCore;
@@ -12,30 +12,23 @@ use rand_core::CryptoRngCore;
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
 /// The length of an encoded public key in bytes.
-pub const PUBLIC_KEY_LEN: usize = 1184 + 32;
+pub const PUBLIC_KEY_LEN: usize = 1184;
 
 /// The length of an encoded private key in bytes.
-pub const PRIVATE_KEY_LEN: usize = PUBLIC_KEY_LEN + 2400 + 32;
+pub const PRIVATE_KEY_LEN: usize = 32 + 32;
 
 /// The public key of a Yrgourd party.
 #[derive(Clone)]
 pub struct PublicKey {
     /// The ML-KEM-768 encrypting key.
-    pub(crate) ek_pq: ml_kem_768::EncapsKey,
-
-    /// The X25519 encrypting key.
-    pub(crate) ek_c: x25519_dalek::PublicKey,
+    pub(crate) ek: ml_kem_768::EncapsKey,
 
     pub(crate) encoded: [u8; PUBLIC_KEY_LEN],
 }
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PublicKey")
-            .field("ek_pq", &self.ek_pq.clone().into_bytes())
-            .field("ek_c", &self.ek_c)
-            .field("encoded", &self.encoded)
-            .finish()
+        f.debug_struct("PublicKey").field("encoded", &self.encoded).finish()
     }
 }
 
@@ -44,11 +37,8 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(encoded: &[u8]) -> Result<Self, Self::Error> {
         let encoded: [u8; PUBLIC_KEY_LEN] = encoded.try_into().map_err(|_| ())?;
-        let (ek_pq, ek_c) = encoded.split_at(1184);
-        let ek_pq = ml_kem_768::EncapsKey::try_from_bytes(ek_pq.try_into().map_err(|_| ())?)
-            .map_err(|_| ())?;
-        let ek_c = x25519_dalek::PublicKey::from(<[u8; 32]>::try_from(ek_c).map_err(|_| ())?);
-        Ok(PublicKey { ek_pq, ek_c, encoded })
+        let ek = ml_kem_768::EncapsKey::try_from_bytes(encoded).map_err(|_| ())?;
+        Ok(PublicKey { ek, encoded })
     }
 }
 
@@ -89,10 +79,7 @@ impl PartialEq for PublicKey {
 #[derive(Clone)]
 pub struct PrivateKey {
     /// The ML-KEM decrypting key.
-    pub(crate) dk_pq: ml_kem_768::DecapsKey,
-
-    /// The X25519 decrypting key.
-    pub(crate) dk_c: x25519_dalek::StaticSecret,
+    pub(crate) dk: ml_kem_768::DecapsKey,
 
     pub public_key: PublicKey,
 
@@ -101,40 +88,28 @@ pub struct PrivateKey {
 
 impl Debug for PrivateKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PrivateKey")
-            .field("dk_pq", &"[redacted]")
-            .field("dk_c", &"[redacted]")
-            .field("public_key", &self.public_key)
-            .field("encoded", &"[redacted]")
-            .finish()
+        f.debug_struct("PrivateKey").field("public_key", &self.public_key).finish()
     }
 }
 
 impl PrivateKey {
     /// Generates a random private key using the given RNG.
     pub fn random(mut rng: impl CryptoRngCore) -> PrivateKey {
-        let (ek_pq, dk_pq) =
-            ml_kem_768::KG::try_keygen_with_rng(&mut rng).expect("should generate");
-        let dk_c = x25519_dalek::StaticSecret::random_from_rng(&mut rng);
-        let ek_c = x25519_dalek::PublicKey::from(&dk_c);
+        let mut d = [0u8; 32];
+        let mut z = [0u8; 32];
+        rng.fill_bytes(&mut d);
+        rng.fill_bytes(&mut z);
+        let (ek, dk) = KG::keygen_from_seed(d, z);
 
-        let mut pub_encoded = Vec::with_capacity(PUBLIC_KEY_LEN);
-        pub_encoded.extend_from_slice(&ek_pq.clone().into_bytes());
-        pub_encoded.extend_from_slice(ek_c.as_bytes());
+        let pub_encoded = ek.clone().into_bytes();
 
         let mut priv_encoded = Vec::with_capacity(PRIVATE_KEY_LEN);
-        priv_encoded.extend_from_slice(&pub_encoded);
-        priv_encoded.extend_from_slice(&dk_pq.clone().into_bytes());
-        priv_encoded.extend_from_slice(dk_c.as_bytes());
+        priv_encoded.extend_from_slice(&d);
+        priv_encoded.extend_from_slice(&z);
 
         PrivateKey {
-            dk_pq,
-            dk_c,
-            public_key: PublicKey {
-                ek_pq,
-                ek_c,
-                encoded: pub_encoded.try_into().expect("should be public key sized"),
-            },
+            dk,
+            public_key: PublicKey { ek, encoded: pub_encoded },
             encoded: priv_encoded.try_into().expect("should be private key sized"),
         }
     }
@@ -147,19 +122,14 @@ impl FromStr for PrivateKey {
         let mut encoded = [0u8; PRIVATE_KEY_LEN];
         hex::decode_to_slice(s, &mut encoded)?;
 
-        let (pub_key, dk_pq) = encoded.split_at(PUBLIC_KEY_LEN);
-        let (dk_pq, dk_c) = dk_pq.split_at(2400);
-
-        let public_key =
-            PublicKey::try_from(pub_key).map_err(|_| ParsePrivateKeyError::InvalidPrivateKey)?;
-        let dk_pq = ml_kem_768::DecapsKey::try_from_bytes(
-            dk_pq.try_into().expect("should be ML-KEM-786 private key sized"),
-        )
-        .map_err(|_| ParsePrivateKeyError::InvalidPrivateKey)?;
-        let dk_c = x25519_dalek::StaticSecret::from(
-            <[u8; 32]>::try_from(dk_c).expect("should be X25519 private key sized"),
+        let (d, z) = encoded.split_at(32);
+        let (ek, dk) = KG::keygen_from_seed(
+            d.try_into().expect("should be 32 bytes"),
+            z.try_into().expect("should bee 32 bytes"),
         );
-        Ok(PrivateKey { dk_pq, dk_c, public_key, encoded })
+
+        let public_key = PublicKey { ek: ek.clone(), encoded: ek.into_bytes() };
+        Ok(PrivateKey { dk, public_key, encoded })
     }
 }
 

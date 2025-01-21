@@ -12,7 +12,7 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::keys::{PrivateKey, PublicKey};
 
-const RATCHET_PAYLOAD_LEN: usize = 1088 + 32;
+const RATCHET_PAYLOAD_LEN: usize = 1088;
 
 /// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte big-endian length
 /// prefix, then an encrypted payload, then a 16-byte authenticator tag.
@@ -80,26 +80,21 @@ where
         self.next_ratchet_at_bytes = self.next_ratchet_at_bytes.saturating_sub(item.len() as u64);
 
         // Check to see if we need to ratchet the protocol state.
-        let (ratchet, frame_type) = if self.next_ratchet_at_bytes == 0
-            || self.next_ratchet_at_time < Instant::now()
-        {
-            // Reset the ratchet data counter and timestamp.
-            self.next_ratchet_at_bytes = self.max_ratchet_bytes;
-            self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
+        let (ratchet, frame_type) =
+            if self.next_ratchet_at_bytes == 0 || self.next_ratchet_at_time < Instant::now() {
+                // Reset the ratchet data counter and timestamp.
+                self.next_ratchet_at_bytes = self.max_ratchet_bytes;
+                self.next_ratchet_at_time = Instant::now() + self.max_ratchet_time;
 
-            // Generate a new ephemeral X25519 private key.
-            let dk = x25519_dalek::EphemeralSecret::random_from_rng(&mut self.rng);
-            let ek = x25519_dalek::PublicKey::from(&dk);
+                // Generate a new ML-KEM-768 encapsulated key.
+                let (ss, ct) =
+                    self.remote.ek.try_encaps_with_rng(&mut self.rng).expect("should encapsulate");
 
-            // Generate a new ML-KEM-768 encapsulated key.
-            let (ss, ct) =
-                self.remote.ek_pq.try_encaps_with_rng(&mut self.rng).expect("should encapsulate");
-
-            // Collect the X25519 key pair and the ML-KEM-768 ciphertext/shared secret pair.
-            (Some((dk, ek, ct.into_bytes(), ss.into_bytes())), FrameType::KeyAndData)
-        } else {
-            (None, FrameType::Data)
-        };
+                // Collect the ML-KEM-768 ciphertext/shared secret pair.
+                (Some((ct.into_bytes(), ss.into_bytes())), FrameType::KeyAndData)
+            } else {
+                (None, FrameType::Data)
+            };
 
         // Calculate and validate the full frame length.
         let n = frame_type.len() + item.len() + TAG_LEN;
@@ -118,9 +113,8 @@ where
         // Add the frame type, the ratchet payload, the payload, and an empty tag, then seal it.
         self.buf.reserve(n);
         self.buf.put_u8(frame_type.into());
-        if let Some((_, ek, ct, _)) = ratchet.as_ref() {
-            // Send the X25519 public key and the ML-KEM-768 ciphertext.
-            self.buf.extend_from_slice(ek.as_bytes());
+        if let Some((ct, _)) = ratchet.as_ref() {
+            // Send the ML-KEM-768 ciphertext.
             self.buf.extend_from_slice(ct);
         };
         self.buf.extend_from_slice(&item);
@@ -132,9 +126,8 @@ where
         self.buf.clear();
 
         // Ratchet the protocol state, if needed.
-        if let Some((dk, _, _, ss)) = ratchet {
-            self.send.mix("ratchet-x25519", dk.diffie_hellman(&self.remote.ek_c).as_bytes());
-            self.send.mix("ratchet-ml-kem-768", &ss);
+        if let Some((_, ss)) = ratchet {
+            self.send.mix("ratchet-ss", &ss);
         }
 
         Ok(())
@@ -181,19 +174,14 @@ impl<R> Decoder for Codec<R> {
             Ok(FrameType::KeyAndData) => {
                 // Split off and decode the ratchet payload.
                 let ratchet = data.split_to(RATCHET_PAYLOAD_LEN);
-                let (ek, ct) = ratchet.split_at(32);
-                let ek = x25519_dalek::PublicKey::from(
-                    <[u8; 32]>::try_from(ek).expect("should be 32 bytes"),
-                );
                 let ct = ml_kem_768::CipherText::try_from_bytes(
-                    ct.try_into().expect("should be 1088 bytes"),
+                    ratchet.as_ref().try_into().expect("should be 1088 bytes"),
                 )
                 .expect("should be valid ciphertext");
-                let ss = self.local.dk_pq.try_decaps(&ct).expect("should decapsulate");
+                let ss = self.local.dk.try_decaps(&ct).expect("should decapsulate");
 
                 // Mix the ratchet shared secret into the recv protocol.
-                self.recv.mix("ratchet-x25519", self.local.dk_c.diffie_hellman(&ek).as_bytes());
-                self.recv.mix("ratchet-ml-kem-768", &ss.into_bytes());
+                self.recv.mix("ratchet-ss", &ss.into_bytes());
 
                 // Return the frame's payload.
                 Ok(Some(data))

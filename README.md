@@ -17,21 +17,19 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 
 ## Things It Does
 
-* Uses [X25519][] and [ML-KEM-768][] for asymmetric operations and [TurboSHAKE128][]/[AEGIS-128L][]
-  for symmetric operations.
+* Uses [ML-KEM-768][] for asymmetric operations and [TurboSHAKE128][]/[AEGIS-128L][] for symmetric
+  operations.
 * Capable of >10 Gb/sec throughput.
 * Everything in a connection is encrypted.
-* Handshakes use Noise-IK-style ECDH/ML-KEM to authenticate both sender and receiver with forward
-  security for both.
-* Uses ephemeral keys and ML-KEM ciphertexts to ratchet the connection state every `N` seconds or
-  `M` bytes.
+* Handshakes use a static/ephemeral ML-KEM handshake to authenticate both sender and receiver with
+  forward security for both.
+* Uses ML-KEM ciphertexts to ratchet the connection state every `N` seconds or `M` bytes.
 * Responders can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
 
-[X25519]: https://www.rfc-editor.org/rfc/rfc7748.html
 [ML-KEM-768]: https://csrc.nist.gov/pubs/fips/203/ipd
-[TurboSHAKE128]: https://www.ietf.org/archive/id/draft-irtf-cfrg-kangarootwelve-13.html
-[AEGIS-128L]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aegis-aead-10.html
+[TurboSHAKE128]: https://www.ietf.org/archive/id/draft-irtf-cfrg-kangarootwelve-16.html
+[AEGIS-128L]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aegis-aead-15.html
 
 ## Demo
 
@@ -74,81 +72,84 @@ connect <--plaintext--> proxy <--encrypted--> reverse-proxy <--plaintext--> echo
 
 ## Design
 
-Both initiator and responder have [X25519][]/[ML-KEM-768] key pairs; the initiator knows the
-responder's public key. The handshake is effectively the same as the `IK` handshake in the [Noise][]
-protocol framework with an [ML-KEM-768][] prefix, providing full mutual authentication as well as
-identity-hiding.
+Both initiator and responder have [ML-KEM-768][] key pairs; the initiator knows the
+responder's public key. The handshake is the `Kyber.AKE` construction from the original [Kyber][]
+paper with the addition of encrypting the initiator's public keys and a confirmation tag in the
+response.
 
-[Noise]: https://noiseprotocol.org/noise.html#interactive-handshake-patterns-fundamental
+[Kyber]: <https://eprint.iacr.org/2017/634>
 
 The initiator starts with a static private key `(is, IS)` and the responder's static public key
 `RS`:
 
 ```text
 function initiate((is, IS), RS):
-  ie ← rand(32)                               // Generate the initiator's ephemeral X25519 private key.
-  yg ← init("yrgourd.v1")                     // Initialize a protocol.
-  yg ← mix(yg, "rs", RS)                      // Mix in the responder's static public key,
-  (c0, ss) ← ml_kem_encap(RS)                 // Encapsulate a random key with ML-KEM-768.
-  yg ← mix(yg, "rs-ml-kem-768-ct", c0)        // Mix in the ML-KEM ciphertext.
-  yg ← mix(yg, "rs-ml-kem-768-ss", ss)        // Mix in the ML-KEM shared secret.
-  (yg, c1) ← encrypt(yg, "ie", x25519(ie, G)) // Encrypt the initiator's ephemeral public key.
-  yg ← mix(yg, "ie-rs", x25519(ie, RS))       // Mix in the ephemeral/static shared secret.
-  (yg, c2) ← seal(yg, "is", IS)               // Seal the initiator's static public key.
-  yg ← mix(yg, "is-rs", x25519(is, RS))       // Mix in the static/static shared secret.
-  return (yg, ie, ct, c0, c2)
+  (ie, IE) ← ml_kem::keygen()      // Generate a random ephemeral key.
+  yg ← init("yrgourd.v1")          // Initialize a protocol.
+  yg ← mix(yg, "rs", RS)           // Mix in the responder's static public key,
+  (c0, ss) ← ml_kem::encap(RS)     // Encapsulate a random key with ML-KEM-768.
+  yg ← mix(yg, "rs-ct", c0)        // Mix in the ML-KEM ciphertext.
+  yg ← mix(yg, "rs-ss", ss)        // Mix in the ML-KEM shared secret.
+  (yg, c1) ← encrypt(yg, "is", IS) // Encrypt the initiator's static public key.
+  (yg, c2) ← seal(yg, "ie", IE)    // Seal the initiator's ephemeral public key.
+  return ((yg, ie), c0, c1, c2)
 ```
 
-The initiator sends the ML-KEM-768 ciphertext `c0`, the encrypted ephemeral X25519 public key `c1`,
-and the encrypted static X25519/ML-KEM-768 public key `c2` to the responder and keeps `yg` and `ie`
-as private state.
+The initiator sends the ML-KEM-768 ciphertext `c0`, the encrypted static public key `c1`, and the
+sealed ephemeral public key `c2` to the responder and keeps `yg` and `ie` as private state.
 
 The responder starts with a static private key `(rs, RS)`:
 
 ```text
 function accept((rs, RS), c0, c1, c2):
-  re ← rand(32)                            // Generate the responder's ephemeral X25519 private key.
   yg ← init("yrgourd.v1")                  // Initialize a protocol.
   yg ← mix(yg, "rs", RS)                   // Mix in the responder's static public key.
-  ss ← ml_kem_decap(rs, c0)                // Decapsulate the ML-KEM_768 ciphertext.
-  yg ← mix(yg, "rs-ml-kem-768-ct", c0)     // Mix in the ML-KEM ciphertext.
-  yg ← mix(yg, "rs-ml-kem-768-ss", ss)     // Mix in the ML-KEM shared secret.
-  (yg, IE) ← decrypt(yg, "ie", c1)         // Mix in the initiator's ephemeral public key.
-  yg ← mix(yg, "ie-rs", [rs]IE))           // Mix in the ephemeral/static shared secret.
-  (yg, IS) ← open(yg, "is", c0)            // Open the responder's static public key.
-  yg ← mix(yg, "is-rs", [rs]IS))           // Mix in the static/static shared secret.
 
-  (c3, ss) ← ml_kem_encap(IS)              // Encapsulate a random key with ML-KEM-768.
-  yg ← mix(yg, "is-ml-kem-768-ct", c3)     // Mix in the ML-KEM ciphertext.
-  yg ← mix(yg, "is-ml-kem-768-ss", ss)     // Mix in the ML-KEM shared secret.
-  (yg, c4) ← seal(yg, "re", x25519(re, G)) // Seal the responder's ephemeral public key.
-  yg ← mix(yg, "ie-re", x25519(re, IE))    // Mix in the ephemeral/ephemeral shared secret.
-  yg ← mix(yg, "is-re", x25519(re, IS))    // Mix in the static/ephemeral shared secret.
+  rs_ss ← ml_kem::decap(rs, c0)            // Decapsulate the ML-KEM_768 ciphertext.
+  yg ← mix(yg, "rs-ct", c0)                // Mix in the ML-KEM ciphertext.
+  yg ← mix(yg, "rs-ss", rs_ss)             // Mix in the ML-KEM shared secret.
+  (yg, IE) ← decrypt(yg, "ia", c1)         // Decrypt the initiator's static public key.
+  (yg, IS) ← open(yg, "ie", c2)            // Open the initiator's ephemeral public key.
+
+  (is_ct, is_ss) ← ml_kem::encap(IS)       // Encapsulate a random key with ML-KEM-768.
+  (yg, c3) ← encrypt(yg, "is-ct", is_ct)   // Encrypt the ML-KEM ciphertext.
+  yg ← mix(yg, "is-ss", is_ss)             // Mix in the ML-KEM shared secret.
+
+  (ie_ct, ie_ss) ← ml_kem::encap(IE)       // Encapsulate a random key with ML-KEM-768.
+  (yg, c4) ← seal(yg, "ie-ct", ie_ct)      // Seal the ML-KEM ciphertext.
+  yg ← mix(yg, "ie-ss", ie_ss)             // Mix in the ML-KEM shared secret.
+
   yg_recv ← mix(yg, "sender", "responder") // Fork the protocol into a (recv, send) pair.
   yg_send ← mix(yg, "sender", "initiator")
-  return (yg_recv, yg_send, c3, c4)
+  return ((yg_recv, yg_send), c3, c4)
 ```
 
-The responder sends the encrypted ephemeral public key `c1` to the initiator.
+The responder sends the ML-KEM-768 ciphertexts `c3` and `c4` to the initiator.
 
 The initiator performs the following:
 
 ```text
 function finalize(yg, is, ie, c3, c4):
-  ss ← ml_kem_decap(rs, c3)                // Decapsulate the ML-KEM_768 ciphertext.
-  yg ← mix(yg, "is-ml-kem-768-ct", c3)     // Mix in the ML-KEM ciphertext.
-  yg ← mix(yg, "is-ml-kem-768-ss", ss)     // Mix in the ML-KEM shared secret.
-  (yg, RE) ← open(yg, "re", c4)            // Open the responder's ephemeral public key.
-  yg ← mix(yg, "ie-re", x25519(ie, RE))    // Mix in the ephemeral/ephemeral shared secret.
-  yg ← mix(yg, "is-re", x25519(ie, RE))    // Mix in the static/ephemeral shared secret.
+  (ig, is_ct) ← decrypt(yg, "is-ct", c3)   // Decrypt the ciphertext.
+  is_ss ← ml_kem::decap(is_ct)             // Decapsulate the shared secret.
+  yg ← mix(yg, "is-ss", is_ss)             // Mix in the ML-KEM shared secret.
+
+  (ig, ie_ct) ← open(yg, "ie-ct", c4)      // Open the ciphertext.
+  ie_ss ← ml_kem::decap(ie_ct)             // Decapsulate the shared secret.
+  yg ← mix(yg, "ie-ss", ie_ss)             // Mix in the ML-KEM shared secret.
+
   yg_recv ← mix(yg, "sender", "responder") // Fork the protocol into a (recv, send) pair.
   yg_send ← mix(yg, "sender", "initiator")
   return (yg_recv, yg_send)
 ```
 
 Now the initiator and responder each have two protocols: `yg_recv` for decrypting received packets,
-and `yg_send` for encrypting sent packets. The initiator and responder discard their ephemeral keys,
-ensuring forward secrecy for both parties.
+and `yg_send` for encrypting sent packets. The initiator discards their ephemeral keys and both
+parties discard their shared secrets. An adversary who recovers the initiator's private key will be
+unable to decapsulate the first shared secret (`rs_ss`) and thus unable to decrypt the rest of the
+data. An adversary who recovers the responder's private key will be able to recover `rs_ss` but
+unable to decapsulate the next two shared secrets (`is_ss` and `ie_ss`). An adversary who recovers
+both will be able to decapsulate both `rs_ss` and `is_ss` but unable to decapsulate `ie_ss`.
 
 Transport between the initiator and responder uses length-delimited frames with a 3-byte big-endian
 length prepended to each packet. (The length does not include these 3 bytes.)
@@ -171,21 +172,19 @@ The initiator's `yg_send` and the responder's `yg_recv` stay synchronized, likew
 initiator's `yg_recv` and the responder's `yg_send`.
 
 Each frame begins with a frame type. A frame which begins with a `1` contains only data. A frame
-with a `2` contains an ML-KEM-768 ciphertext and an X25519 public key prepended to the data for
-ratcheting. To initiate a ratchet, the transport sends a `2` frame and then performs the following:
+with a `2` contains an ML-KEM-768 ciphertext prepended to the data for ratcheting. To initiate a
+ratchet, the transport sends a `2` frame and then performs the following:
 
 ```text
-yg_send ← mix(yg_send, "ratchet-x25519", x25519(rk, remote.pub, ratchet.priv))
-let (ct, ss) ← ml_kem_encap(remote.pub)
-yg_send ← mix(yg_send, "ratchet-ml-kem-768", ss)
+let (ct, ss) ← ml_kem::encap(remote.pub)
+yg_send ← mix(yg_send, "ratchet-ss", ss)
 ```
 
 The receiver, upon decrypting a `2` frame performs the following:
 
 ```text
-yg_recv ← mix(yg_recv, "ratchet-x25519", x25519(rk.pub, local.priv))
-ss ← ml_kem_decap(local.priv, ct)
-yg_recv ← mix(yg_recv, "ratchet-ml-kem-768", ss)
+ss ← ml_kem::decap(local.priv, ct)
+yg_recv ← mix(yg_recv, "ratchet-ss", ss)
 ```
 
 Ratchets are performed every two minutes, or on every frame if fewer than one frame is sent every
@@ -193,20 +192,19 @@ two minutes.
 
 ## Performance
 
-On my M3 MacBook Air:
+On my M3 MacBook Pro:
 
 ```text
-handshake               time:   [370.17 µs 371.07 µs 371.30 µs]
+handshake               time:   [235.19 µs 235.37 µs 235.60 µs]
 
-transfer/1MiB           time:   [653.47 µs 654.25 µs 657.37 µs]
-                        thrpt:  [1.4856 GiB/s 1.4926 GiB/s 1.4944 GiB/s]
-transfer/10MiB          time:   [2.2203 ms 2.2412 ms 2.3245 ms]
-                        thrpt:  [4.2012 GiB/s 4.3574 GiB/s 4.3983 GiB/s]
-transfer/100MiB         time:   [17.134 ms 17.213 ms 17.529 ms]
-                        thrpt:  [5.5710 GiB/s 5.6734 GiB/s 5.6996 GiB/s]
-transfer/1GiB           time:   [170.13 ms 170.77 ms 173.29 ms]
-                        thrpt:  [5.7706 GiB/s 5.8560 GiB/s 5.8777 GiB/s]
-
+transfer/1MiB           time:   [483.27 µs 483.91 µs 484.59 µs]
+                        thrpt:  [2.0152 GiB/s 2.0181 GiB/s 2.0207 GiB/s]
+transfer/10MiB          time:   [2.0744 ms 2.0794 ms 2.0847 ms]
+                        thrpt:  [4.6845 GiB/s 4.6965 GiB/s 4.7077 GiB/s]
+transfer/100MiB         time:   [17.190 ms 17.225 ms 17.260 ms]
+                        thrpt:  [5.6578 GiB/s 5.6695 GiB/s 5.6810 GiB/s]
+transfer/1GiB           time:   [173.36 ms 174.22 ms 175.26 ms]
+                        thrpt:  [5.7057 GiB/s 5.7399 GiB/s 5.7684 GiB/s]
 ```
 
 `handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
@@ -217,6 +215,6 @@ See the [Lockstitch][] documentation for specifics on compiler options for perfo
 
 ## License
 
-Copyright © 2024 Coda Hale
+Copyright © 2024-2025 Coda Hale
 
 Distributed under the Apache License 2.0 or MIT License.

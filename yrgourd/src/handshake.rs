@@ -1,166 +1,128 @@
+//! Implements the yrgourd handshake.
+
 use fips203::{
-    ml_kem_768,
-    traits::{Decaps, Encaps, SerDes},
+    ml_kem_768::{CipherText, DecapsKey, KG},
+    traits::{Decaps, Encaps as _, KeyGen as _, SerDes as _},
 };
 use lockstitch::{Protocol, TAG_LEN};
 use rand_core::CryptoRngCore;
 
-use crate::keys::{PrivateKey, PublicKey, PUBLIC_KEY_LEN};
+use crate::{PrivateKey, PublicKey};
 
-/// The length of an initiator's request in bytes.
-pub const REQUEST_LEN: usize = 1088 + 32 + PUBLIC_KEY_LEN + TAG_LEN;
+/// The size in bytes of an initiator's request: `rs-ct + is + ie + tag`.
+pub const REQ_LEN: usize = 1088 + 1184 + 1184 + TAG_LEN;
 
-/// The length of an responder's response in bytes.
-pub const RESPONSE_LEN: usize = 1088 + 32 + TAG_LEN;
+/// The size in bytes of a responder's response: `is-ct + ie-ct + tag`.
+pub const RESP_LEN: usize = 1088 + 1088 + TAG_LEN;
 
-/// An ephemeral X25519 private key.
-pub type EphemeralPrivateKey = x25519_dalek::ReusableSecret;
-
-/// An ephemeral X25519 public key.
-pub type EphemeralPublicKey = x25519_dalek::PublicKey;
-
-/// Begins a handshake, returning a [`Protocol`] and an opaque array of bytes to be sent to the
-/// responder.
 pub fn initiate(
     mut rng: impl CryptoRngCore,
-    is: &PrivateKey,
+    is: &PublicKey,
     rs: &PublicKey,
-) -> (Protocol, EphemeralPrivateKey, [u8; REQUEST_LEN]) {
-    // Generate an ephemeral X25519 key.
-    let ie = EphemeralPrivateKey::random_from_rng(&mut rng);
+) -> ((Protocol, DecapsKey), [u8; REQ_LEN]) {
+    // Generate an ephemeral key pair.
+    let (ie_enc, ie) = KG::try_keygen_with_rng(&mut rng).expect("should generate key");
+
+    // Allocate and split a buffer for the request.
+    let mut req = [0u8; REQ_LEN];
+    let (req_rs_ct, req_is) = req.split_at_mut(1088);
+    let (req_is, req_ie) = req_is.split_at_mut(1184);
 
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
 
-    // Allocate and split a request buffer.
-    let mut resp = [0u8; REQUEST_LEN];
-    let (resp_ct, resp_ie) = resp.split_at_mut(1088);
-    let (resp_ie, resp_is) = resp_ie.split_at_mut(32);
-
     // Mix the responder's static public key into the protocol.
-    yr.mix("rs", &rs.encoded);
+    yr.mix("rs", &rs.ek.clone().into_bytes());
 
-    // Generate a new ML-KEM-768 encapsulated key.
-    let (ss, ct) = rs.ek_pq.try_encaps_with_rng(&mut rng).expect("should encapsulate");
-    yr.mix("rs-ml-kem-ct", &ct.clone().into_bytes());
-    yr.mix("rs-ml-kem-ss", &ss.into_bytes());
-    resp_ct.copy_from_slice(&ct.into_bytes());
+    // Encapsulate a shared secret with the responser's static key.
+    let (rs_ss, rs_ct) = rs.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate");
+    req_rs_ct.copy_from_slice(&rs_ct.into_bytes());
 
-    // Encrypt the initiator's ephemeral public key.
-    resp_ie.copy_from_slice(EphemeralPublicKey::from(&ie).as_bytes());
-    yr.encrypt("re", resp_ie);
+    // Mix the ciphertext and shared secret into the protocol.
+    yr.mix("rs-ct", req_rs_ct);
+    yr.mix("rs-ss", &rs_ss.into_bytes());
 
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("ie-rs", ie.diffie_hellman(&rs.ek_c).as_bytes());
+    // Encrypt the initiator's static public key.
+    req_is.copy_from_slice(&is.ek.clone().into_bytes());
+    yr.encrypt("is", req_is);
 
-    // Seal the initiator's static public key.
-    resp_is[..PUBLIC_KEY_LEN].copy_from_slice(&is.public_key.encoded);
-    yr.seal("is", resp_is);
+    // Seal the initiator's ephemeral public key.
+    req_ie[..1184].copy_from_slice(&ie_enc.into_bytes());
+    yr.seal("ie", req_ie);
 
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("is-rs", is.dk_c.diffie_hellman(&rs.ek_c).as_bytes());
-
-    (yr, ie, resp)
+    ((yr, ie), req)
 }
 
-/// Accepts a handshake given the initiator's request. If valid, returns the initiator's public key,
-/// a protocol, and a response to be sent to the initiator.
 pub fn accept(
     mut rng: impl CryptoRngCore,
     rs: &PrivateKey,
-    mut req: [u8; REQUEST_LEN],
-) -> Option<(PublicKey, (Protocol, Protocol), [u8; RESPONSE_LEN])> {
-    // Generate an ephemeral X25519 key pair.
-    let re = EphemeralPrivateKey::random_from_rng(&mut rng);
+    mut req: [u8; REQ_LEN],
+) -> Option<((Protocol, Protocol), PublicKey, [u8; RESP_LEN])> {
+    // Split the request into pieces.
+    let (req_rs_ct, req_is) = req.split_at_mut(1088);
+    let (req_is, req_ie) = req_is.split_at_mut(1184);
 
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
-
-    // Split the request buffer.
-    let (req_ct, req_ie) = req.split_at_mut(1088);
-    let (req_ie, req_is) = req_ie.split_at_mut(32);
 
     // Mix the responder's static public key into the protocol.
     yr.mix("rs", &rs.public_key.encoded);
 
-    // Decapsulate the ML-KEM-768 shared secret.
-    let ct =
-        ml_kem_768::CipherText::try_from_bytes(req_ct.try_into().expect("should be 1088 bytes"))
-            .expect("should be valid ciphertext");
-    let ss = rs.dk_pq.try_decaps(&ct).expect("should decapsulate");
-    yr.mix("rs-ml-kem-ct", &ct.into_bytes());
-    yr.mix("rs-ml-kem-ss", &ss.into_bytes());
+    // Decapsulate the shared secret.
+    yr.mix("rs-ct", req_rs_ct);
+    let rs_ct = CipherText::try_from_bytes(req_rs_ct.try_into().ok()?).ok()?;
+    let rs_ss = rs.dk.try_decaps(&rs_ct).ok()?;
+    yr.mix("rs-ss", &rs_ss.into_bytes());
 
-    // Decrypt the initiator's ephemeral public key into the protocol and parse it.
-    yr.decrypt("re", req_ie);
-    let ie = EphemeralPublicKey::from(<[u8; 32]>::try_from(req_ie).expect("should be 32 bytes"));
+    // Decrypt and decode the initiator's static key.
+    yr.decrypt("is", req_is);
+    let is = PublicKey::try_from(<&[u8]>::from(req_is)).ok()?;
 
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("ie-rs", rs.dk_c.diffie_hellman(&ie).as_bytes());
+    // Open and decode the initiator's ephemeral public key.
+    let ie = PublicKey::try_from(yr.open("ie", req_ie)?).ok()?;
 
-    // Open and decode the initiator's static public key.
-    let is = PublicKey::try_from(yr.open("is", req_is)?).ok()?;
+    // Allocate and split a buffer for the response.
+    let mut resp = [0u8; RESP_LEN];
+    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(1088);
 
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("is-rs", rs.dk_c.diffie_hellman(&is.ek_c).as_bytes());
+    // Encapsulate a shared secret with the initiator's static key and encrypt it.
+    let (is_ss, is_ct) = is.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate key");
+    resp_is_ct.copy_from_slice(&is_ct.into_bytes());
+    yr.encrypt("is-ct", resp_is_ct);
+    yr.mix("is-ss", &is_ss.into_bytes());
 
-    // Allocate and split a response buffer.
-    let mut resp = [0u8; RESPONSE_LEN];
-    let (resp_ct, resp_re) = resp.split_at_mut(1088);
-
-    // Generate a new ML-KEM-768 encapsulated key.
-    let (ss, ct) = is.ek_pq.try_encaps_with_rng(&mut rng).expect("should encapsulate");
-    yr.mix("is-ml-kem-ct", &ct.clone().into_bytes());
-    yr.mix("is-ml-kem-ss", &ss.into_bytes());
-    resp_ct.copy_from_slice(&ct.into_bytes());
-
-    // Encrypt the responder's ephemeral public key.
-    resp_re[..32].copy_from_slice(EphemeralPublicKey::from(&re).as_bytes());
-    yr.seal("re", resp_re);
-
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("ie-re", re.diffie_hellman(&ie).as_bytes());
-
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("is-re", re.diffie_hellman(&is.ek_c).as_bytes());
+    // Encapsulate a shared secret with the initiator's ephemeral key and seal it.
+    let (ie_ss, ie_ct) = ie.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate key");
+    resp_ie_ct[..1088].copy_from_slice(&ie_ct.into_bytes());
+    yr.seal("ie-ct", resp_ie_ct);
+    yr.mix("ie-ss", &ie_ss.into_bytes());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
     recv.mix("sender", b"initiator");
     send.mix("sender", b"responder");
 
-    Some((is, (recv, send), resp))
+    Some(((recv, send), is, resp))
 }
 
-/// Finalizes an initiated handshake given the responder's response. If valid, returns a `(recv,
-/// send)` pair of [`Protocol`]s for transport.
 pub fn finalize(
+    (mut yr, ie): (Protocol, DecapsKey),
     is: &PrivateKey,
-    ie: EphemeralPrivateKey,
-    mut yr: Protocol,
-    mut resp: [u8; RESPONSE_LEN],
+    mut resp: [u8; RESP_LEN],
 ) -> Option<(Protocol, Protocol)> {
-    // Split the response buffer.
-    let (resp_ct, resp_re) = resp.split_at_mut(1088);
+    // Split up the response.
+    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(1088);
 
-    // Decapsulate the ML-KEM-768 shared secret.
-    let ct =
-        ml_kem_768::CipherText::try_from_bytes(resp_ct.try_into().expect("should be 1088 bytes"))
-            .expect("should be valid ciphertext");
-    let ss = is.dk_pq.try_decaps(&ct).expect("should decapsulate");
-    yr.mix("is-ml-kem-ct", &ct.into_bytes());
-    yr.mix("is-ml-kem-ss", &ss.into_bytes());
+    // Decrypt the ciphertext and decapsulate the static shared secret.
+    yr.decrypt("is-ct", resp_is_ct);
+    let is_ct = CipherText::try_from_bytes(resp_is_ct.try_into().ok()?).ok()?;
+    let is_ss = is.dk.try_decaps(&is_ct).ok()?;
+    yr.mix("is-ss", &is_ss.into_bytes());
 
-    // Decrypt and decode the responder's ephemeral public key.
-    let re = EphemeralPublicKey::from(
-        <[u8; 32]>::try_from(yr.open("re", resp_re)?).expect("should be 32 bytes"),
-    );
-
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("ie-re", ie.diffie_hellman(&re).as_bytes());
-
-    // Calculate the shared secret and mix it into the protocol.
-    yr.mix("is-re", is.dk_c.diffie_hellman(&re).as_bytes());
+    // Open the ciphertext and decapsulate the ephemeral shared secret.
+    let ie_ct = CipherText::try_from_bytes(yr.open("ie-ct", resp_ie_ct)?.try_into().ok()?).ok()?;
+    let ie_ss = ie.try_decaps(&ie_ct).ok()?;
+    yr.mix("ie-ss", &ie_ss.into_bytes());
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
@@ -180,49 +142,42 @@ mod tests {
     #[test]
     fn round_trip() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let responder_static = PrivateKey::random(&mut rng);
-        let initiator_static = PrivateKey::random(&mut rng);
 
-        let (yr_init, ie, req) =
-            initiate(&mut rng, &initiator_static, &responder_static.public_key);
+        let rs = PrivateKey::random(&mut rng);
+        let is = PrivateKey::random(&mut rng);
 
-        let (pk, (mut responder_recv, mut responder_send), resp) =
-            accept(&mut rng, &responder_static, req).expect("should begin successfully");
-        assert_eq!(initiator_static.public_key, pk);
+        let (init_state, init_msg) = initiate(&mut rng, &is.public_key, &rs.public_key);
+        let ((mut resp_recv, mut resp_send), is_pub_p, resp_msg) =
+            accept(&mut rng, &rs, init_msg).unwrap();
+        assert_eq!(is.public_key, is_pub_p);
+        let (mut init_recv, mut init_send) = finalize(init_state, &is, resp_msg).unwrap();
 
-        let (mut initiator_recv, mut initiator_send) =
-            finalize(&initiator_static, ie, yr_init, resp).expect("should finalize successfully");
-
-        assert_eq!(
-            responder_recv.derive_array::<8>("test"),
-            initiator_send.derive_array::<8>("test")
-        );
-        assert_eq!(
-            initiator_recv.derive_array::<8>("test"),
-            responder_send.derive_array::<8>("test")
-        );
+        assert_eq!(init_send.derive_array::<8>("test"), resp_recv.derive_array::<8>("test"));
+        assert_eq!(resp_send.derive_array::<8>("test"), init_recv.derive_array::<8>("test"));
     }
 
     #[test]
-    fn fuzz_accept() {
+    fn fuzz_accept_msg() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let responder_static = PrivateKey::random(&mut rng);
 
-        bolero::check!().with_type().cloned().for_each(|req| {
-            assert!(accept(&mut rng, &responder_static, req).is_none());
+        let rs = PrivateKey::random(&mut rng);
+
+        bolero::check!().with_type().cloned().for_each(|init_msg| {
+            assert!(accept(&mut rng, &rs, init_msg).is_none());
         });
     }
 
     #[test]
     fn fuzz_finalize() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
-        let initiator_static = PrivateKey::random(&mut rng);
-        let responder_static = PrivateKey::random(&mut rng);
 
-        let (yr, ie, _) = initiate(&mut rng, &initiator_static, &responder_static.public_key);
+        let rs = PrivateKey::random(&mut rng);
+        let is = PrivateKey::random(&mut rng);
 
-        bolero::check!().with_type().cloned().for_each(|resp| {
-            assert!(finalize(&initiator_static, ie.clone(), yr.clone(), resp).is_none());
+        let (init_state, _) = initiate(&mut rng, &is.public_key, &rs.public_key);
+
+        bolero::check!().with_type().cloned().for_each(|resp_msg| {
+            assert!(finalize(init_state.clone(), &is, resp_msg).is_none());
         });
     }
 }
