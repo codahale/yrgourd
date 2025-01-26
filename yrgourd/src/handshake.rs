@@ -70,8 +70,9 @@ pub fn accept(
 
     // Decapsulate the shared secret.
     yr.mix("rs-ct", req_rs_ct);
-    let rs_ct = CipherText::try_from_bytes(req_rs_ct.try_into().ok()?).ok()?;
-    let rs_ss = rs.dk.try_decaps(&rs_ct).ok()?.into_bytes();
+    let rs_ct = CipherText::try_from_bytes(req_rs_ct.try_into().expect("should be 1088 bytes"))
+        .expect("should be valid ciphertext");
+    let rs_ss = rs.dk.try_decaps(&rs_ct).expect("should decapsulate").into_bytes();
     yr.mix("rs-ss", &rs_ss);
 
     // Decrypt and decode the initiator's static key.
@@ -115,13 +116,17 @@ pub fn finalize(
 
     // Decrypt the ciphertext and decapsulate the static shared secret.
     yr.decrypt("is-ct", resp_is_ct);
-    let is_ct = CipherText::try_from_bytes(resp_is_ct.try_into().ok()?).ok()?;
-    let is_ss = is.dk.try_decaps(&is_ct).ok()?.into_bytes();
+    let is_ct = CipherText::try_from_bytes(resp_is_ct.try_into().expect("should be 1088 bytes"))
+        .expect("should be valid ciphertext");
+    let is_ss = is.dk.try_decaps(&is_ct).expect("should decapsulate").into_bytes();
     yr.mix("is-ss", &is_ss);
 
     // Open the ciphertext and decapsulate the ephemeral shared secret.
-    let ie_ct = CipherText::try_from_bytes(yr.open("ie-ct", resp_ie_ct)?.try_into().ok()?).ok()?;
-    let ie_ss = ie.try_decaps(&ie_ct).ok()?.into_bytes();
+    let ie_ct = CipherText::try_from_bytes(
+        yr.open("ie-ct", resp_ie_ct)?.try_into().expect("should be 1088 bytes"),
+    )
+    .expect("should be valid ciphertext");
+    let ie_ss = ie.try_decaps(&ie_ct).expect("should decapsulate").into_bytes();
     yr.mix("ie-ss", &ie_ss);
 
     // Fork the protocol into recv and send clones.
