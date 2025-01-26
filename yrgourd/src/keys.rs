@@ -28,7 +28,7 @@ pub struct PublicKey {
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PublicKey").field("encoded", &self.encoded).finish()
+        f.debug_struct("PublicKey").field("encoded", &self.encoded).finish_non_exhaustive()
     }
 }
 
@@ -88,7 +88,7 @@ pub struct PrivateKey {
 
 impl Debug for PrivateKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PrivateKey").field("public_key", &self.public_key).finish()
+        f.debug_struct("PrivateKey").field("public_key", &self.public_key).finish_non_exhaustive()
     }
 }
 
