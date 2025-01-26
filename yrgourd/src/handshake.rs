@@ -32,7 +32,7 @@ pub fn initiate(
     let mut yr = Protocol::new("yrgourd.v1");
 
     // Mix the responder's static public key into the protocol.
-    yr.mix("rs", &rs.ek.clone().into_bytes());
+    yr.mix("rs", &rs.encoded);
 
     // Encapsulate a shared secret with the responser's static key.
     let (rs_ss, rs_ct) = rs.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate");
@@ -43,7 +43,7 @@ pub fn initiate(
     yr.mix("rs-ss", &rs_ss.into_bytes());
 
     // Encrypt the initiator's static public key.
-    req_is.copy_from_slice(&is.ek.clone().into_bytes());
+    req_is.copy_from_slice(&is.encoded);
     yr.encrypt("is", req_is);
 
     // Seal the initiator's ephemeral public key.
@@ -71,8 +71,8 @@ pub fn accept(
     // Decapsulate the shared secret.
     yr.mix("rs-ct", req_rs_ct);
     let rs_ct = CipherText::try_from_bytes(req_rs_ct.try_into().ok()?).ok()?;
-    let rs_ss = rs.dk.try_decaps(&rs_ct).ok()?;
-    yr.mix("rs-ss", &rs_ss.into_bytes());
+    let rs_ss = rs.dk.try_decaps(&rs_ct).ok()?.into_bytes();
+    yr.mix("rs-ss", &rs_ss);
 
     // Decrypt and decode the initiator's static key.
     yr.decrypt("is", req_is);
@@ -116,13 +116,13 @@ pub fn finalize(
     // Decrypt the ciphertext and decapsulate the static shared secret.
     yr.decrypt("is-ct", resp_is_ct);
     let is_ct = CipherText::try_from_bytes(resp_is_ct.try_into().ok()?).ok()?;
-    let is_ss = is.dk.try_decaps(&is_ct).ok()?;
-    yr.mix("is-ss", &is_ss.into_bytes());
+    let is_ss = is.dk.try_decaps(&is_ct).ok()?.into_bytes();
+    yr.mix("is-ss", &is_ss);
 
     // Open the ciphertext and decapsulate the ephemeral shared secret.
     let ie_ct = CipherText::try_from_bytes(yr.open("ie-ct", resp_ie_ct)?.try_into().ok()?).ok()?;
-    let ie_ss = ie.try_decaps(&ie_ct).ok()?;
-    yr.mix("ie-ss", &ie_ss.into_bytes());
+    let ie_ss = ie.try_decaps(&ie_ct).ok()?.into_bytes();
+    yr.mix("ie-ss", &ie_ss);
 
     // Fork the protocol into recv and send clones.
     let (mut recv, mut send) = (yr.clone(), yr);
