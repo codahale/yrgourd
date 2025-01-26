@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn fuzz_accept_msg() {
+    fn fuzz_accept() {
         let mut rng = ChaChaRng::seed_from_u64(0xDEADBEEF);
 
         let rs = PrivateKey::random(&mut rng);
