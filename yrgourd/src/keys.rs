@@ -101,17 +101,14 @@ impl PrivateKey {
         rng.fill_bytes(&mut z);
         let (ek, dk) = KG::keygen_from_seed(d, z);
 
-        let pub_encoded = ek.clone().into_bytes();
+        let public_key = PublicKey { ek: ek.clone(), encoded: ek.into_bytes() };
 
-        let mut priv_encoded = Vec::with_capacity(PRIVATE_KEY_LEN);
-        priv_encoded.extend_from_slice(&d);
-        priv_encoded.extend_from_slice(&z);
+        let mut encoded = [0u8; PRIVATE_KEY_LEN];
+        let (encoded_d, encoded_z) = encoded.split_at_mut(32);
+        encoded_d.copy_from_slice(&d);
+        encoded_z.copy_from_slice(&z);
 
-        PrivateKey {
-            dk,
-            public_key: PublicKey { ek, encoded: pub_encoded },
-            encoded: priv_encoded.try_into().expect("should be private key sized"),
-        }
+        PrivateKey { dk, public_key, encoded }
     }
 }
 
