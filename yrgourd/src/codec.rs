@@ -12,7 +12,7 @@ use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
 use crate::keys::{PrivateKey, PublicKey};
 
-const RATCHET_PAYLOAD_LEN: usize = 1088;
+const RATCHET_PAYLOAD_LEN: usize = ml_kem_768::CT_LEN;
 
 /// A duplex codec for encrypted frames. Each frame has an encrypted 3-byte big-endian length
 /// prefix, then an encrypted payload, then a 16-byte authenticator tag.

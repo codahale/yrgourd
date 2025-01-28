@@ -1,7 +1,7 @@
 //! Implements the yrgourd handshake.
 
 use fips203::{
-    ml_kem_768::{CipherText, DecapsKey, KG},
+    ml_kem_768::{self, CipherText, DecapsKey, KG},
     traits::{Decaps, Encaps as _, KeyGen as _, SerDes as _},
 };
 use lockstitch::{Protocol, TAG_LEN};
@@ -10,10 +10,10 @@ use rand_core::CryptoRngCore;
 use crate::{PrivateKey, PublicKey};
 
 /// The size in bytes of an initiator's request: `rs-ct + is + ie + tag`.
-pub const REQ_LEN: usize = 1088 + 1184 + 1184 + TAG_LEN;
+pub const REQ_LEN: usize = ml_kem_768::CT_LEN + ml_kem_768::EK_LEN + ml_kem_768::EK_LEN + TAG_LEN;
 
 /// The size in bytes of a responder's response: `is-ct + ie-ct + tag`.
-pub const RESP_LEN: usize = 1088 + 1088 + TAG_LEN;
+pub const RESP_LEN: usize = ml_kem_768::CT_LEN + ml_kem_768::CT_LEN + TAG_LEN;
 
 pub fn initiate(
     mut rng: impl CryptoRngCore,
@@ -25,8 +25,8 @@ pub fn initiate(
 
     // Allocate and split a buffer for the request.
     let mut req = [0u8; REQ_LEN];
-    let (req_rs_ct, req_is) = req.split_at_mut(1088);
-    let (req_is, req_ie) = req_is.split_at_mut(1184);
+    let (req_rs_ct, req_is) = req.split_at_mut(ml_kem_768::CT_LEN);
+    let (req_is, req_ie) = req_is.split_at_mut(ml_kem_768::EK_LEN);
 
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
@@ -59,8 +59,8 @@ pub fn accept(
     mut req: [u8; REQ_LEN],
 ) -> Option<((Protocol, Protocol), PublicKey, [u8; RESP_LEN])> {
     // Split the request into pieces.
-    let (req_rs_ct, req_is) = req.split_at_mut(1088);
-    let (req_is, req_ie) = req_is.split_at_mut(1184);
+    let (req_rs_ct, req_is) = req.split_at_mut(ml_kem_768::CT_LEN);
+    let (req_is, req_ie) = req_is.split_at_mut(ml_kem_768::EK_LEN);
 
     // Initialize a protocol.
     let mut yr = Protocol::new("yrgourd.v1");
@@ -84,7 +84,7 @@ pub fn accept(
 
     // Allocate and split a buffer for the response.
     let mut resp = [0u8; RESP_LEN];
-    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(1088);
+    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(ml_kem_768::CT_LEN);
 
     // Encapsulate a shared secret with the initiator's static key and encrypt it.
     let (is_ss, is_ct) = is.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate key");
@@ -94,7 +94,7 @@ pub fn accept(
 
     // Encapsulate a shared secret with the initiator's ephemeral key and seal it.
     let (ie_ss, ie_ct) = ie.ek.try_encaps_with_rng(&mut rng).expect("should encapsulate key");
-    resp_ie_ct[..1088].copy_from_slice(&ie_ct.into_bytes());
+    resp_ie_ct[..ml_kem_768::CT_LEN].copy_from_slice(&ie_ct.into_bytes());
     yr.seal("ie-ct", resp_ie_ct);
     yr.mix("ie-ss", &ie_ss.into_bytes());
 
@@ -112,7 +112,7 @@ pub fn finalize(
     mut resp: [u8; RESP_LEN],
 ) -> Option<(Protocol, Protocol)> {
     // Split up the response.
-    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(1088);
+    let (resp_is_ct, resp_ie_ct) = resp.split_at_mut(ml_kem_768::CT_LEN);
 
     // Decrypt the ciphertext and decapsulate the static shared secret.
     yr.decrypt("is-ct", resp_is_ct);
