@@ -17,7 +17,7 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 
 ## Things It Does
 
-* Uses [ML-KEM-768][] for asymmetric operations and [TurboSHAKE128][]/[AEGIS-128L][] for symmetric
+* Uses [ML-KEM-768][] for asymmetric operations and [SHA-256][]/[AEGIS-128L][] for symmetric
   operations.
 * Capable of >10 Gb/sec throughput.
 * Everything in a connection is encrypted.
@@ -27,8 +27,8 @@ In addition, there is absolutely no guarantee of backwards compatibility.
 * Responders can restrict handshakes to a set of valid initiator public keys.
 * Core logic for handshakes and transport is <500 LoC.
 
+[SHA-256]: https://doi.org/10.6028/NIST.FIPS.180-4
 [ML-KEM-768]: https://csrc.nist.gov/pubs/fips/203/ipd
-[TurboSHAKE128]: https://www.ietf.org/archive/id/draft-irtf-cfrg-kangarootwelve-16.html
 [AEGIS-128L]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aegis-aead-15.html
 
 ## Demo
@@ -195,16 +195,16 @@ two minutes.
 On my M3 MacBook Pro:
 
 ```text
-handshake               time:   [235.19 µs 235.37 µs 235.60 µs]
+handshake               time:   [261.38 µs 261.49 µs 261.62 µs]
 
-transfer/1MiB           time:   [483.27 µs 483.91 µs 484.59 µs]
-                        thrpt:  [2.0152 GiB/s 2.0181 GiB/s 2.0207 GiB/s]
-transfer/10MiB          time:   [2.0744 ms 2.0794 ms 2.0847 ms]
-                        thrpt:  [4.6845 GiB/s 4.6965 GiB/s 4.7077 GiB/s]
-transfer/100MiB         time:   [17.190 ms 17.225 ms 17.260 ms]
-                        thrpt:  [5.6578 GiB/s 5.6695 GiB/s 5.6810 GiB/s]
-transfer/1GiB           time:   [173.36 ms 174.22 ms 175.26 ms]
-                        thrpt:  [5.7057 GiB/s 5.7399 GiB/s 5.7684 GiB/s]
+transfer/1MiB           time:   [524.25 µs 525.74 µs 527.98 µs]
+                        thrpt:  [1.8496 GiB/s 1.8575 GiB/s 1.8628 GiB/s]
+transfer/10MiB          time:   [2.2045 ms 2.2097 ms 2.2147 ms]
+                        thrpt:  [4.4094 GiB/s 4.4195 GiB/s 4.4298 GiB/s]
+transfer/100MiB         time:   [17.670 ms 17.794 ms 17.975 ms]
+                        thrpt:  [5.4329 GiB/s 5.4882 GiB/s 5.5267 GiB/s]
+transfer/1GiB           time:   [177.49 ms 178.14 ms 178.84 ms]
+                        thrpt:  [5.5917 GiB/s 5.6136 GiB/s 5.6343 GiB/s]
 ```
 
 `handshake` measures the time it takes to establish a Yrgourd connection over a Tokio duplex stream;
