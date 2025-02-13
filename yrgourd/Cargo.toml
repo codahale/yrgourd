@@ -9,7 +9,7 @@ bytes = "1.10.0"
 fips203 = { version = "0.4.2", default-features = false, features = ["ml-kem-768"] }
 futures = "0.3.31"
 hex = "0.4.3"
-lockstitch = "0.26.0"
+lockstitch = "0.27.0"
 pin-project-lite = "0.2.16"
 rand_core = "0.6.4"
 thiserror = "2.0.11"
