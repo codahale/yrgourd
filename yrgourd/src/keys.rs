@@ -8,6 +8,7 @@ use fips203::{
     traits::{KeyGen, SerDes},
 };
 use rand_core::CryptoRngCore;
+use subtle::ConstantTimeEq;
 
 use crate::errors::{ParsePrivateKeyError, ParsePublicKeyError};
 
@@ -71,7 +72,7 @@ impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
         // Compare public keys in constant time to avoid timing attacks on initiator restriction
         // policies.
-        lockstitch::ct_eq(&self.encoded, &other.encoded)
+        self.encoded.ct_eq(&other.encoded).into()
     }
 }
 
