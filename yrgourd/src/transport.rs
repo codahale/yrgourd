@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::{Buf, Bytes, BytesMut};
-use futures::{ready, Sink, Stream};
+use futures::{Sink, Stream, ready};
 use pin_project_lite::pin_project;
 use rand_core::CryptoRngCore;
 use tokio::io::{self, AsyncBufRead, AsyncRead, AsyncWrite};

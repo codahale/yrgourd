@@ -92,7 +92,7 @@ impl AllowPolicy {
     const fn keys(&self) -> Option<&HashSet<PublicKey>> {
         match self {
             AllowPolicy::AllInitiators => None,
-            AllowPolicy::AllowedInitiators(ref keys) => Some(keys),
+            AllowPolicy::AllowedInitiators(keys) => Some(keys),
         }
     }
 }

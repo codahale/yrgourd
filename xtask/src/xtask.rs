@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 #[derive(Debug, Parser)]
 struct XTask {

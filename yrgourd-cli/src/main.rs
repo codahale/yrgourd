@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use clap::Parser;
-use futures::{future, FutureExt, SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt, future};
 use rand::rngs::OsRng;
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt, BufReader},
