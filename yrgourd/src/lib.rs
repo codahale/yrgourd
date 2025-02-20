@@ -171,9 +171,10 @@ impl Responder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use rand_chacha::ChaChaRng;
     use rand_core::{OsRng, SeedableRng};
-    use std::sync::Mutex;
     use tokio::{io::BufReader, time};
 
     use super::*;
