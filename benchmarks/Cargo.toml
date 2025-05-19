@@ -5,7 +5,7 @@ publish = false
 edition = "2024"
 
 [dependencies]
-criterion = { version = "0.5.1", features = ["async", "async_tokio"] }
+criterion = { version = "0.6.0", features = ["async", "async_tokio"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 tokio = { version = "1.45.0", features = ["full"] }
