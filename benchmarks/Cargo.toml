@@ -8,7 +8,7 @@ edition = "2024"
 criterion = { version = "0.6.0", features = ["async", "async_tokio"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-tokio = { version = "1.45.1", features = ["full"] }
+tokio = { version = "1.46.0", features = ["full"] }
 yrgourd = { path = "../yrgourd" }
 
 [[bench]]
