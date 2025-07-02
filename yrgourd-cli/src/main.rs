@@ -200,7 +200,7 @@ async fn main() -> Result<(), io::Error> {
 
 fn generate_key() -> io::Result<()> {
     let private_key = PrivateKey::random(OsRng);
-    println!("private key = {}", private_key);
+    println!("private key = {private_key}");
     println!("public key = {}", private_key.public_key);
     Ok(())
 }
@@ -225,7 +225,7 @@ async fn proxy(
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
                     if let Err(e) = r {
-                        println!("Failed to transfer; error={}", e);
+                        println!("Failed to transfer; error={e}");
                     }
                 })
                 .await;
@@ -260,7 +260,7 @@ async fn reverse_proxy(
             io::copy_bidirectional(&mut inbound, &mut outbound)
                 .map(|r| {
                     if let Err(e) = r {
-                        println!("Failed to transfer; error={}", e);
+                        println!("Failed to transfer; error={e}");
                     }
                 })
                 .await;
@@ -346,7 +346,7 @@ async fn connect(addr: impl ToSocketAddrs) -> io::Result<()> {
         .filter_map(|i| match i {
             Ok(i) => future::ready(Some(i.freeze())),
             Err(e) => {
-                println!("failed to read from socket; error={}", e);
+                println!("failed to read from socket; error={e}");
                 future::ready(None)
             }
         })
