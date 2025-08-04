@@ -1579,7 +1579,7 @@ dependencies = [
  "lockstitch",
  "pin-project-lite",
  "rand_chacha 0.3.1",
- "rand_core 0.6.4",
+ "rand_core 0.9.3",
  "subtle",
  "thiserror",
  "tokio",
